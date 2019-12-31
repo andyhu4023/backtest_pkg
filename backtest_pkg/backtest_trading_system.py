@@ -45,7 +45,7 @@ class account:
     Account contains information of holding. It is a data frame of columns ['quantity', 'price', 'value'], index as id of security or 'cash'.
     Transactions will record quantity change in account.
     '''
-    def __init__(self, capital = 10**8):
+    def __init__(self, capital = 10**6):
         self.holding = pd.DataFrame(columns=['quantity', 'price', 'value'])
         self.holding.loc['Cash', :] = [capital, 1, capital]
     
