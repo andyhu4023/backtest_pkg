@@ -1,5 +1,86 @@
 import pandas as pd 
 
+class trading_system:
+
+    def __init__(self, capital=10**6):
+        self.capital = 10**6
+    
+    def set_price(self, OHLC):
+        OHLC.columns = list('OHLC')
+        OHLC.index = pd.to_datetime(OHLC.index)
+        self.__price = OHLC
+
+    #############   Create Orders   ###############################
+    def _init_order_book(self):
+        '''
+        Initiate the order book to contain order information for execution.
+        market orders: record to number of shares to buy/sell in market
+        limit orders: a pd.Series with key string format of limit price, value integer format of buy/sell shares.
+        target orders: same as limit order, different execution rules.
+        '''
+        self.market_buy_book = 0
+        self.market_sell_book = 0
+        self.limit_buy_book = pd.Series()
+        self.limit_sell_book = pd.Series()
+        self.target_buy_book = pd.Series()
+        self.target_sell_book = pd.Series()
+
+    def market_buy(self, quantity):
+        '''
+        quatity: number of shares to buy at market price.
+        '''
+        self.market_buy_book += quantity
+    
+    def market_sell(self, quantity):
+        '''
+        quantiy: number of shares to sell at market price.
+        '''
+        self.market_sell_book += quantity
+
+    def limit_buy(self, quantity, price):
+        '''
+        quantity: number of shares to buy.
+        price: highest price to buy
+        '''
+        self.limit_buy_book[str(price)] = self.limit_buy_book.get(str(price), 0) + quantity
+
+    def limit_sell(self, quantity, price):
+        '''
+        quantity: number of shares to sell.
+        price: lowest price to sell.
+        '''
+        self.limit_sell_book[str(price)] = self.limit_sell_book.get(str(price), 0) + quantity
+
+    def target_buy(self, quantity, price):
+        '''
+        quantity: number of shares to buy.
+        price: exact price to buy. (No transaction for higher or lower price)
+        '''
+        self.target_buy_book[str(price)] = self.target_buy_book.get(str(price), 0) + quantity
+
+    def target_sell(self, quantity, price):
+        '''
+        quantity: number of shares to sell.
+        price: exact price to sell. (No transaction for lower or higher price)
+        '''
+        self.target_sell_book[str(price)] = self.target_buy_book.get(str(price), 0) + quantity
+
+    
+
+    #############   Execution    #########################
+    def _init_account(self):
+        '''
+        Use a dataframe to store holding information.
+        It is a 2 by 3 df with index = ['Cash', 'Shares'], columns = ['Number', 'Price', 'Value']
+
+
+
+
+
+
+
+
+
 class universe:
     def __init__(self, OHLC = dict()):
         '''

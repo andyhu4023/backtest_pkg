@@ -3,10 +3,19 @@ import os
 import backtest_pkg.backtest_trading_system as bt 
 import importlib
 import pandas as pd 
-import matplotlib.pyplot as plt
+from pandas_datareader import data
+# import matplotlib.pyplot as plt
 
-os.chdir(r'M:\Share\Colleagues\Andy\Python Project\Backtest Module')
-price_data = pd.read_csv('pkg_test/Adjusted_Price.csv', index_col=0, parse_dates=True)
+
+#%%%%%%%%%%%%%%%%   Code for first download    %%%%%%
+start_date = '2010-01-01'
+end_date = '2018-12-31'
+
+ticker_list = ['AAPL','GOOG','FB', 'MSFT']
+for ticker in ticker_list:
+    price_date = data.DataReader(ticker, 'yahoo', start_date, end_date)
+    price_date.to_csv(f'pkg_test/Technical Data/{ticker}.csv')
+
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%
 importlib.reload(bt)
