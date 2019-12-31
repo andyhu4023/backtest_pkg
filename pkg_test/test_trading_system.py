@@ -1,6 +1,6 @@
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%
 import os
-import backtest_pkg.backtest_trading_system as bt 
+import backtest_pkg as bt 
 import importlib
 import pandas as pd 
 from pandas_datareader import data

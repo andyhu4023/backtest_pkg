@@ -10,7 +10,7 @@ class trading_system:
         OHLC.index = pd.to_datetime(OHLC.index)
         self.__price = OHLC
 
-    #############   Create Orders   ###############################
+ ###################   Create Orders   ###############################
     def _init_order_book(self):
         '''
         Initiate the order book to contain order information for execution.
@@ -67,11 +67,78 @@ class trading_system:
 
     
 
-    #############   Execution    #########################
+#####################   Execution    #########################
     def _init_account(self):
         '''
-        Use a dataframe to store holding information.
-        It is a 2 by 3 df with index = ['Cash', 'Shares'], columns = ['Number', 'Price', 'Value']
+        On attribute 'account', use a dictionary to store holding information. The dictionary has keys ['cash', 'shares']
+        '''
+        self.account = {'cash': self.capital, 'share': 0}
+        self.transaction = pd.DataFrame(columns=['Date', 'Side', 'Quantity', 'Price'])
+
+    def _load_trading_data(self, date):
+        '''
+        On attribute 'current_trading_data', use a pd.Series to store OHLC price on given date.
+        '''
+        date = pd.to_datetime(date)
+        self.current_trading_data = self.__price[date, :]
+        self.current_trading_date = date
+
+    def  transaction(self, date, side, qty, price):
+        if side == 'B':
+            self.account['cash'] -= qty*price
+            self.account['share'] += qty 
+            self.transaction.append({'Date':date, 'Side': 'B', 'Quantity':qty, 'Price': price}, ignore_index = True)
+        elif side  == 'S':
+            self.account['cash'] += qty*price
+            self.account['share'] -= qty 
+            self.transaction.append({'Date':date, 'Side': 'S', 'Quantity':qty, 'Price': price}, ignore_index = True)
+        else:
+            raise 'Unknown Side'
+
+
+    ####################     Market orders     #######################
+    def execute_market_orders(self):
+        open_price = self.current_trading_data['O']
+        date = self.current_trading_date
+
+        # Market trade are execute at open price:
+        market_shares = self.market_buy_book -  self.market_sell_book
+        if market_shares == 0:
+            return
+        elif market_shares>0:
+            if self.account['cash'] >= market_order_value:
+                self.transaction(date, 'B', market_shares, open_price)
+                self.market_buy_book = 0
+                self.market_sell_book = 0
+                return
+            else:
+                # If not enough capital, then buy as much as possible, non-executed shares will remain:
+                trading_share = int(capital/open_price)
+                self.transaction(date, 'B', trading_share, open_price)
+                self.market_buy_book = market_shares - trading_share
+                self.market_sell_book = 0
+                return
+        else:
+            if self.account['share'] >= -market_shares:
+                self.transaction(date, 'S', -market_shares, open_price)
+                self.market_buy_book = 0
+                self.market_sell_book = 0
+                return
+            else:
+                # If not enough shares to sell, then sell all, non-executed shares will remain:
+                trading_share = self.account['share']
+                self.transaction(date, 'S', trading_share, open_price)
+                self.market_buy_book = 0
+                self.market_sell_book = -market_shares - trading_share 
+                return
+
+        ####################     Target Orders    ####################
+
+
+        ####################     Limit Orders   ####################
+
+
+
 
 
 
