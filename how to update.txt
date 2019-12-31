@@ -1,0 +1,6 @@
+1. Modify 'version' in setup.py, start cmd and change to dir of setup.py
+cd /d "M:\Share\Colleagues\Andy\Python Project\Backtest Module"
+2. generating distribution archives and upload:
+python setup.py sdist bdist_wheel
+twine upload --skip-existing dist/*
+3. Need to enter username and password before uploading.
