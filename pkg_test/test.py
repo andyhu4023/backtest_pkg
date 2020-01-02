@@ -1,4 +1,7 @@
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%
-import backtest_pkg as bt 
+import pandas as pd 
 
-port = bt.portfolio()
+ts = pd.Series([1,2,3], index = ['a', 'b', 'c'])
+
+for i in ts:
+    print(i)

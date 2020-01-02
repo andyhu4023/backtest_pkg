@@ -83,6 +83,7 @@ class trading_system:
         self.current_trading_data = self.__price[date, :]
         self.current_trading_date = date
 
+    # to do: handling shorting money/shares? how to deal with remaining orders, return?
     def  transaction(self, date, side, qty, price):
         if side == 'B':
             self.account['cash'] -= qty*price
@@ -132,10 +133,60 @@ class trading_system:
                 self.market_sell_book = -market_shares - trading_share 
                 return
 
-        ####################     Target Orders    ####################
+    ####################     Target Orders    ####################
+    def execute_target_orders(self):
+        low_price = self.current_trading_data['L']    
+        high_price = self.current_trading_data['H']
+        date = self.current_trading_date
 
+        # Target buy:
+        numerical_index = pd.to_numeric(self.target_buy_book.index)
+        execute_index = (numerical_index <= high_price) & (numerical_index >= low_price)
+        for price in numerical_index[execute_index]:
+            self.transaction(date, 'B', self.target_buy_book[str(price)], price)
+        self.target_buy_book = self.target_buy_book[~execute_index] # Update book
 
-        ####################     Limit Orders   ####################
+        # Target sell:
+        numerical_index = pd.to_numeric(self.target_sell_book.index)
+        execute_index = (numerical_index <= high_price) & (numerical_index >= low_price)
+        for price in numerical_index[execute_index]:
+            self.transaction(date, 'S', self.target_sell_book[str(price)], price)
+        self.target_buy_book = self.target_sell_book[~execute_index] # Update book
+        
+    ####################     Limit Orders   ####################
+    def execute_limit_orders(self):
+        open_price = self.current_trading_data['O']
+        high_price = self.current_trading_data['H']
+        low_price = self.current_trading_data['L']
+        date = self.current_trading_date
+
+        # open buy:
+        numerical_index = pd.to_numeric(self.limit_buy_book.index)
+        execute_index = (numerical_index >= open_price)
+        for price in numerical_index[execute_index]:
+            self.transaction(date, 'B', self.limit_buy_book[str(price)], open_price)
+        self.limit_buy_book = self.limit_buy_book[~execute_index] # Update book
+
+        # intraday buy:
+        numerical_index = pd.to_numeric(self.limit_buy_book.index)
+        execute_index = (numerical_index >= low_price)
+        for price in numerical_index[execute_index]:
+            self.transaction(date, 'B', self.limit_buy_book[str(price)], price)
+        self.limit_buy_book = self.limit_buy_book[~execute_index] # Update book
+
+        # open sell:
+        numerical_index = pd.to_numeric(self.limit_sell_book.index)
+        execute_index = (numerical_index <= open_price)
+        for price in numerical_index[execute_index]:
+            self.transaction(date, 'S', self.limit_sell_book[str(price)], open_price)
+        self.limit_sell_book = self.limit_sell_book[~execute_index] # Update book
+
+        # intraday sell:
+        numerical_index = pd.to_numeric(self.limit_sell_book.index)
+        execute_index = (numerical_index <= high_price)
+        for price in numerical_index[execute_index]:
+            self.transaction(date, 'S', self.limit_sell_book[str(price)], price)
+        self.limit_sell_book = self.limit_sell_book[~execute_index] # Update book
 
 
 
