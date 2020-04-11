@@ -11,7 +11,7 @@ setuptools.setup(
     description="A package for backtesting portfolio strategies and trading signals",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    # url="https://github.com/pypa/sampleproject",
+    url="https://github.com/andyhu4023/backtest_pkg.git",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
