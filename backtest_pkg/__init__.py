@@ -1,2 +1,3 @@
 from backtest_pkg.backtest_portfolio import portfolio
 from backtest_pkg.backtest_trading_system import signal
+from backtest_pkg.backtest_trading_system import market

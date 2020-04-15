@@ -1,11 +1,9 @@
 LICENSE
 README.md
 backtest.code-workspace
-extend_weight.csv
-extend_weight_compare.csv
 how to update.txt
+setup.cfg
 setup.py
-test.py
 .vscode/settings.json
 backtest_pkg/__init__.py
 backtest_pkg/backtest_portfolio.py
@@ -26,6 +24,4 @@ dist/backtest_pkg-0.0.3-py3-none-any.whl
 dist/backtest_pkg-0.0.3.tar.gz
 dist/backtest_pkg-0.0.4-py3-none-any.whl
 dist/backtest_pkg-0.0.4.tar.gz
-pkg_test/Adjusted_Price.csv
 pkg_test/test_portfolio.py
-pkg_test/test_signal.py
