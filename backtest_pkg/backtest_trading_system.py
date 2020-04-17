@@ -18,45 +18,67 @@ class market:
         except AttributeError:
             self._daily_ret = np.log(self.adj_close/self.adj_close.shift(1))
             return self._daily_ret
+
+    @property
+    def price_change(self):
+        # Lazy calculation of price change from adjusted price.
+        try:
+            return self._price_change
+        except AttributeError:
+            self._price_change = self.adj_close.diff()
+            return self._price_change
     
-    def get_data(self, data_attr, date=None):
+    def get_data(self, data_attr, date=None, period=None):
         all_data = getattr(self, data_attr)
-        # If date is given, only return data available on or before given date:
+        # If date is given, return data available on or before given date:
         if date is not None:
             if type(date) == str:
                 date = pd.to_datetime(date)
-            # assert((date in ret_df.index), f'Out of range date: {date:%Y-%m-%d}')  # did not pass assertion test!
-            assert(date in all_data.index)
-            return all_data.loc[:date, :]
-        else:
-            return all_data
+            assert (date in all_data.index), f'Out of range date: {date:%Y-%m-%d}'  
+            all_data = all_data.loc[:date, :]
+        # If period is given, return data within the period:
+        if period is not None:
+            assert period>0, f'Negative period: {period}'
+            assert period<=all_data.shape[0], f'period {period} out of range {all_data.shape[0]}'
+            all_data = all_data.iloc[-period:, :]
+        return all_data
+
 
     def daily_ret(self, date=None, lag=0):
         ret_df = self.get_data(data_attr='ret', date=date)
+        assert lag>=0, f"Negative lag: {lag}"
         return ret_df.shift(lag).iloc[[-1], :]
 
     def total_ret(self, date=None, period=None):
-        ret_df = self.get_data(data_attr='ret', date=date)
-        if period is not None:
-            assert(period<=ret_df.shape[0])
-            ret_df = ret_df.iloc[-period:, :]
+        ret_df = self.get_data(data_attr='ret', date=date, period=period)
         return ret_df.sum(axis=0).to_frame(name=ret_df.index[-1]).T
 
     def volatility(self, date=None, period=None):
-        ret_df = self.get_data(data_attr='ret', date=date)
-        if period is not None:
-            assert(period<=ret_df.shape[0])
-            ret_df = ret_df.iloc[-period:, :]
+        ret_df = self.get_data(data_attr='ret', date=date, period=period)
         return ret_df.std(axis=0).to_frame(name=ret_df.index[-1]).T
 
-    def bollinger(self, on=None, look_back=None):
-        pass
+    def bollinger(self, date=None, period=None):
+        adj_close_df = self.get_data(data_attr='adj_close', date=date, period=period)
+        z_score_df = (adj_close_df.iloc[-1, :]-adj_close_df.mean(axis=0))/adj_close_df.std(axis=0)
+        return z_score_df.to_frame(name=adj_close_df.index[-1]).T
 
-    def oscillator(self, on=None, look_back=None):
-        pass
+    def oscillator(self, date=None, period=None):
+        adj_close_df = self.get_data(data_attr='adj_close', date=date, period=period)
+        close_df = self.get_data(data_attr='C', date=date, period=period)
+        adj_high_df = self.get_data(data_attr='H', date=date, period=period)*adj_close_df/close_df
+        adj_low_df = self.get_data(data_attr='L', date=date, period=period)*adj_close_df/close_df
+        osc_df = (adj_close_df.iloc[-1, :]-adj_low_df.min(axis=0))/(adj_high_df.max(axis=0)-adj_low_df.min(axis=0))
+        return osc_df.to_frame(name=adj_close_df.index[-1]).T 
 
-    def RSI(self, on=None, look_back=None):
-        pass
+    def RSI(self, date=None, period=None):
+        close_change_df = self.get_data(data_attr='price_change', date=date, period=period)
+        up_move = close_change_df.clip(lower=0).sum(axis=0)
+        down_move = close_change_df.clip(upper=0).sum(axis=0)
+        total_move = abs(up_move)+abs(down_move)
+        rsi_df = abs(up_move)/total_move
+        rsi_df.loc[total_move<1e-10] = np.nan
+        return rsi_df.to_frame(name=close_change_df.index[-1]).T
+        
 
 class trading_system:
 
