@@ -5,17 +5,6 @@ import warnings
 from math import sqrt
 
 
-
-def get_price_from_BB(tickers, start_date, end_date):
-    'TBA'
-    '''
-    Download price data from Bloomberg. Ensusre a bloomberg connection is valid and the library pdblp is installed.
-    tickers: a list of Bloomberg tickers in the universe.
-    start_date: start date of the price data
-    end_date: end date of the price data
-    '''
-    pass
-
 def annualized_performance_metric(daily_ret_ts, tolerance=10**(-4), annual_trading_days=250):
     output = pd.Series()
     annualized_return= daily_ret_ts.prod()**(annual_trading_days/len(daily_ret_ts))-1
@@ -64,36 +53,70 @@ class portfolio:
     '''
     The universe and the valid testing period will be defined by the price data.
     '''
-    def __init__(self, weight=None, share=None, benchmark=None, end_date=None, name='Portfolio', benchmark_name='Benchmark'):
+    def __init__(self, weight=None, share=None, benchmark=None, end_date=None, name='Portfolio', benchmark_name='Benchmark', price=None, trading_status=None):
         '''
         weight: a df with row-names date, col-name security id, value the portfolio weight (not necessarily normalized) of col-security at row-date. 
         share: a df with row-names date, col-name security id, value the portfolio shares of col-security at row date. 
-        benchmark: a df with row-names date, col-name security id, value the benchmark weight. 
+        benchmark: a df of benchmark weight or a portfolio object
         end_date: date to end backtest 
         name: the name of the portfolio
+        benchmark_name: the name of the benchmark
         '''
-        self._weight = weight
-        self._weight_new = weight is not None
-        self.share = share
-        self.share_new = share is not None
-        # Construct a portfolio object if benchmark is given by weights:
-        if isinstance(benchmark, pd.DataFrame):
-            self.benchmark = portfolio(weight=benchmark, end_date=end_date, name=benchmark_name)
-        elif isinstance(benchmark, portfolio) or (benchmark is None):
-            self.benchmark = benchmark
+        # Price and trading status:
+        if price is not None:
+            self.set_price(price, trading_status)
+
+        # Construct a portfolio from weight or share:
+        if weight is not None:
+            self._weight = weight
+            self.normalized = False
+        elif share is not None:
+            self.share = share
+            self._weight = self.weight_from_share(share)
         else:
-            warnings.warn('Unknown benchmark type!')
-            self.benchmark = None
+            raise TypeError('Input at least one of weight or share')
+
+        # Setting benchmark from weight df or portfolio object:
+        if benchmark is None:
+            pass
+        elif isinstance(benchmark, pd.DataFrame):
+            self.benchmark = portfolio(weight=benchmark, end_date=end_date, name=benchmark_name, price=price)
+        elif isinstance(benchmark, portfolio):
+            self.benchmark = benchmark
+            self.benchmark.set_price(price)
+            self.benchmark.name = benchmark_name
+        else:
+            raise TypeError('Unkown benchmark!')
+        
         self._end_date = end_date
         self.name = name
-        self.benchmark_name = benchmark_name
 
+    def set_price(self, price, trading_status=None):
+        '''
+        price_data: a df with row-names date, col-name security id, value the price of col-security at row-date. 
+        trading_status: a df with row-names date, col-name security id, boolean value indicate if col-security is tradable at row-date. 
+        '''
+        # Price and trading status is const, should not be change once set.
+        self.__price = price
+        if trading_status is None:
+            self.__trading_status = self.__price.notnull()
+        else:
+            trading_status = self._adjust(trading_status)
+            self.__trading_status = self.__price.notnull() & trading_status
+    @property
+    def price(self):
+        return self.__price
+    @property
+    def trading_status(self): 
+        return self.__trading_status
+
+    # Utility function to align df with price:
     def _adjust(self, df):
         assert self.__price is not None, "No price data!"
         # Adjust index(dates) withing price.index
         out_range_date = df.index.difference(self.__price.index)
         if len(out_range_date)>0:
-            print(f'Skipping outrange dates:\n{out_range_date.values}')
+            print(f'Skipping outrange dates:\n{[d.strftime("%Y-%m-%d") for d in out_range_date]}')
             df = df.loc[df.index & self.__price.index, :]
         # Adjust columns(tickers) withing price.columns, 
         unknown_ticker = df.columns.difference(self.__price.columns)
@@ -102,95 +125,45 @@ class portfolio:
             df = df.loc[:, df.columns & self.__price.columns]
         return df
 
+
     @property
     def weight(self):
-        '''
-        Lazy calculate _weight given share and __price.
-        '''
-        # Must set price to make the weight available.
         assert self.__price is not None, 'No price data!'
-
-        if self._weight is not None:
-            if self._weight_new:
-                self._weight = self._adjust(self._weight)
-                # Mask weights on available dates:
-                self._weight = self._weight.where(self.trading_status, other = 0)
-                # Normalize rows before return:
-                self._weight = self._weight.divide(self._weight.sum(axis=1), axis=0).fillna(0)
-                self._weight_new = False
-        else:
-            # Load price and share data to derive weights:
-            assert self.share is not None, 'No weight and no share date!'
-            if self.share_new:
-                self.share = self._adjust(self.share)
-                self.share_new = False
-            price_data = self.__price.copy().loc[self.share.index, self.share.columns]
-
-            # Construct the weights:
-            self._weight = self.share * price_data
-            self._weight_new = False
-            # Mask weights on available dates:
-            self._weight = self._weight.where(self.trading_status, other = 0)
-            # Normalize rows before return:
-            self._weight = self._weight.divide(self._weight.sum(axis=1), axis=0).fillna(0)
-
+        # Normalization process:
+        if not self.normalized:
+            self._weight = self._adjust(self._weight)
+            self._weight = self._weight.where(self.trading_status, other = 0)  # Set weight 0 if trading status is false
+            self._weight = self._weight.divide(self._weight.sum(axis=1), axis=0)  # Normalization
+            self._weight = self._weight.dropna(how='all')  # Drop rows with sum==0.
+            self.normalized= True
+  
         return self._weight
-    @weight.setter 
-    def weight(self, weight_df):
-        self._weight = weight_df
-        self._weight_new = True
-        try:
-            del self._ex_weight
-            del self.port_daily_ret
-            del self.port_total_ret
-        except AttributeError:
-            pass
+  
+    def weight_from_share(self, share):
+        share = self._adjust(share)
+        price_data = self.__price.copy().loc[share.index, share.columns]
+        self._weight = self.share * price_data
+        self.normalized = False
+        return self.weight
 
     @property
     def end_date(self):
         if self._end_date is None:
+            assert self.__price is not None, 'No price data!'
             self._end_date = max(self.__price.index)
         return self._end_date
     @end_date.setter 
     def end_date(self, value):
         self._end_date = value
 
-    ######################    Price and related attributes   ########################
-    def set_price(self, price_data, trading_status=None):
-        '''
-        price_data: a df with row-names date, col-name security id, value the price of col-security at row date. 
-        trading_status: a df with row-names date, col-name security id, boolean value indicate if col-security is tradable at row-date. 
-        '''
-        # Price for backtesting is private attribute.
-        self.__price = price_data
-        self._trading_status = trading_status
-        if self.benchmark:
-            self.benchmark.__price = price_data
-            self.benchmark._trading_status = trading_status
-
     @property
     def daily_ret(self):
-        '''
-        Lazy calculate _daily_ret from __price attribute.
-        '''
         try:
             return self._daily_ret
         except AttributeError:
-            self._daily_ret = self.__price.ffill()/self.__price.ffill().shift(1).bfill(limit=1)
-            # self._daily_ret.iloc[0, :] = 1
+            self._daily_ret = np.log(self.__price.ffill()/self.__price.ffill().shift(1))
             return self._daily_ret
 
-    @property
-    def trading_status(self): 
-        '''
-        Lazy calcuate _trading_status from __price.
-        '''
-        if self._trading_status is None:
-            self._trading_status = self.__price.notnull() # Valid for trade only if price exists 
-        return self._trading_status
-    @trading_status.setter
-    def trading_status(self, value):
-        self._trading_status = value
 
     #####################  Backtesting methods   ####################
     def _drift_weight(self, initial_weight, rebalanced_weight=None, end=None):
