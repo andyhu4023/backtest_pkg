@@ -1,5 +1,5 @@
 import unittest
-from pandas.util.testing import assert_frame_equal
+from pandas.util.testing import assert_frame_equal, assert_series_equal
 
 import backtest_pkg as bt 
 import pandas as pd 
@@ -29,14 +29,6 @@ class TestPortfolio(unittest.TestCase):
         self.ticker = adj_price_df.columns 
         self.index = adj_price_df.index
         self.price = adj_price_df
-
-        self.trading_status = pd.DataFrame(True, index=self.index, columns=self.ticker)
-        self.trading_status.iloc[:3, 0]=False
-        self.trading_status.iloc[3:6, 1]=False
-        self.trading_status.iloc[6:, 2]=False
-
-        self.weight = pd.DataFrame(1, index=self.index[[0, 5]], columns=self.ticker)
-        self.share = pd.DataFrame(1, index=self.index[[0, 5]], columns=self.ticker)
         ''' Price in values:
         'Up trend': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         'Down trend': [10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
@@ -45,6 +37,48 @@ class TestPortfolio(unittest.TestCase):
         'Sin': [11, 17.42, 20.84, 19.66, 14.42, 7.57, 2.33, 1.15, 4.57, 11]
         '''
 
+        self.trading_status = pd.DataFrame(True, index=self.index, columns=self.ticker)
+        self.trading_status.iloc[:3, 0]=False
+        self.trading_status.iloc[3:6, 1]=False
+        self.trading_status.iloc[6:, 2]=False
+
+        # Equal weight portfolio:
+        self.weight = pd.DataFrame(1, index=self.index[[0, 5]], columns=self.ticker)
+        # Equal weight asset values:
+        self.asset_values_no_rebal = self.price.copy()
+        self.asset_values_no_rebal = self.asset_values_no_rebal.apply(lambda ts: ts/ts[0], axis=0)
+        self.asset_values_1_rebal = self.asset_values_no_rebal.copy()
+        rebal_value = self.asset_values_1_rebal.iloc[5, :].mean()
+        self.asset_values_1_rebal.iloc[5:,:] = self.asset_values_1_rebal.iloc[5:,:].apply(lambda ts: ts/ts[0]*rebal_value, axis=0)
+        # With trading status:
+        self.asset_values_no_rebal_tst = self.asset_values_no_rebal.copy()
+        self.asset_values_no_rebal_tst.iloc[:, 0] = 0
+        asset_values = self.asset_values_no_rebal.copy()
+        asset_values.iloc[:5, 0] = 0
+        rebal_value = asset_values.iloc[5, [2, 3, 4]].sum()/4
+        apply_col = [0, 2, 3, 4]
+        asset_values.iloc[5:,apply_col] = asset_values.iloc[5:,apply_col].apply(lambda ts: ts/ts[0]*rebal_value, axis=0)
+        self.asset_values_1_rebal_tst = asset_values
+        
+        # Price weight portfolio: 
+        self.share = pd.DataFrame(1, index=self.index[[0, 5]], columns=self.ticker)
+        # Price weight asset values:
+        self.asset_values_no_rebal_share = self.price.copy()
+        self.asset_values_1_rebal_share = self.price.copy()
+        # With trading status: 
+        self.asset_values_no_rebal_share_tst = self.asset_values_no_rebal_share.copy()
+        self.asset_values_no_rebal_share_tst.iloc[:, 0] = 0
+        asset_values = self.asset_values_no_rebal_share.copy()
+        asset_values.iloc[:5, 0] = 0
+        adjust_factor = asset_values.iloc[5, [2, 3, 4]].sum()/asset_values.iloc[5, [0, 2, 3, 4]].sum()
+        apply_col = [0, 2, 3, 4]
+        asset_values.iloc[5:,apply_col] = asset_values.iloc[5:,apply_col].apply(lambda ts: ts*adjust_factor, axis=0)
+        self.asset_values_1_rebal_share_tst = asset_values
+
+
+
+
+#######################    Portfolio Construction   ########################
     def test_portfolio_set_price(self):
         # Normal setting:
         port = bt.portfolio(weight=self.weight)
@@ -127,6 +161,10 @@ class TestPortfolio(unittest.TestCase):
         port = bt.portfolio(weight=out_range_weight, price=self.price)
         expect = pd.DataFrame(0.2, index=self.index[[0, 5]], columns=self.ticker)
         assert_frame_equal(port.weight, expect) 
+
+        # Weight cannot be set after initiation:
+        with self.assertRaises(AttributeError):
+            port.weight = self.weight
     def test_portfolio_weight_with_trading_status(self):
         # Weights on untradables:
         port = bt.portfolio(weight=self.weight, price=self.price, trading_status=self.trading_status)
@@ -143,7 +181,6 @@ class TestPortfolio(unittest.TestCase):
         expect = weight.iloc[[0], :]
         assert_frame_equal(port.weight, expect) 
         
-
     def test_portfolio_from_share(self):
         # No trading status:
         price_1 = [1, 10, 26, 1, 11]
@@ -162,57 +199,187 @@ class TestPortfolio(unittest.TestCase):
         assert_frame_equal(port.weight,expect) 
     
     def test_portfolio_end_date(self):
+        # Defulat end date: last date of price
         port = bt.portfolio(weight=self.weight, price=self.price)
         self.assertEqual(port.end_date, self.index[-1])
+
+        # Set end date at initiation:
         end_date = pd.to_datetime('2020-01-08')
         port = bt.portfolio(weight=self.weight, price=self.price, end_date=end_date)
         self.assertEqual(port.end_date, end_date)
+        # Change end date after initiation:
+        port = bt.portfolio(weight=self.weight, price=self.price)
+        self.assertEqual(port.end_date, self.index[-1])
+        port.end_date = end_date
+        self.assertEqual(port.end_date, end_date)
         
+############################    Backtest calculations    ############################
     def test_portfolio_daily_ret(self):
         price = pd.DataFrame(index=self.index)
         price['Normal'] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]  # Normal case
-        price['Suspension'] = [1, 2, 3, np.nan, np.nan, na.nan, 4, 5, 6, 7]  # Temporary suspension
+        price['Suspension'] = [1, 2, 3, np.nan, np.nan, np.nan, 4, 5, 6, 7]  # Temporary suspension
         price['Delisting'] = [1, 2, 3, 4, 5] + [np.nan]*5  # Delisting
         price['Late'] = [np.nan]*5 + [1, 2, 3, 4, 5]# Late listing:
         
         expect = pd.DataFrame(index=self.index)
-        expect['Normal'] = [np.nan]+[log((i+1/i)) for i in range(1,10)]  
+        expect['Normal'] = [np.nan]+[log((i+1)/i) for i in range(1,10)]  
         expect['Suspension'] = [np.nan]+[log(2/1), log(3/2)] + [0.]*3 + [log(4/3), log(5/4), log(6/5), log(7/6)] 
-        expect['Delisting'] =[np.nan]+[log((i+1/i)) for i in range(1,5)] + [0.]*5
-        expect['Late'] = [np.nan]*6+[log((i+1/i)) for i in range(1,5)]
+        expect['Delisting'] =[np.nan]+[log((i+1)/i) for i in range(1,5)] + [0.]*5
+        expect['Late'] = [np.nan]*6+[log((i+1)/i) for i in range(1,5)]
 
         port = bt.portfolio(weight=self.weight, price=price)
         assert_frame_equal(port.daily_ret, expect)
 
-
     def test_portfolio_drift_weight(self):
         # NO rebalance:
+        port = bt.portfolio(weight=self.weight.iloc[[0], :], price=self.price)
+        expect = self.asset_values_no_rebal.copy()
+        expect = expect.apply(lambda ts: ts/ts.sum(), axis=1)
+        assert_frame_equal(port.ex_weight, expect)
 
         # 1 rebalance:
-        pass
-    def test_portfolio_drift_weight_with_trading_status(self):
-        # No rebalance
-        # 1 rebalance:
-        pass
+        port = bt.portfolio(weight=self.weight, price=self.price)
+        expect = self.asset_values_1_rebal.copy()
+        expect = expect.apply(lambda ts: ts/ts.sum(), axis=1)
+        assert_frame_equal(port.ex_weight, expect)
 
     def test_portfolio_performance_return(self):
-        pass
+        # NO rebalance:
+        port = bt.portfolio(weight=self.weight.iloc[[0], :], price=self.price)
+        port_value = self.asset_values_no_rebal.sum(axis=1).values
+        expect_daily_ret = [0]+list(log(port_value[i+1]/port_value[i]) for i in range(len(self.index)-1))
+        expect_daily_ret = pd.Series(expect_daily_ret, index=self.index)
+        expect_total_ret = [0]+list(log(port_value[i+1]/port_value[0]) for i in range(len(self.index)-1))
+        expect_total_ret = pd.Series(expect_total_ret, index=self.index)
+        assert_series_equal(port.port_daily_ret, expect_daily_ret)
+        assert_series_equal(port.port_total_ret, expect_total_ret)
+        port_value_ts = self.asset_values_no_rebal.sum(axis=1)
+        assert_series_equal(port.port_total_value, port_value_ts/port_value_ts[0])
 
-    def test_portfolio_performance_volatility(self):
-        pass
+        # 1 rebalance:
+        port = bt.portfolio(weight=self.weight, price=self.price)
+        port_value = self.asset_values_1_rebal.sum(axis=1).values
+        expect_daily_ret = [0]+list(log(port_value[i+1]/port_value[i]) for i in range(len(self.index)-1))
+        expect_daily_ret = pd.Series(expect_daily_ret, index=self.index)
+        expect_total_ret = [0]+list(log(port_value[i+1]/port_value[0]) for i in range(len(self.index)-1))
+        expect_total_ret = pd.Series(expect_total_ret, index=self.index)
+        assert_series_equal(port.port_daily_ret, expect_daily_ret)
+        assert_series_equal(port.port_total_ret, expect_total_ret)
+        port_value_ts = self.asset_values_1_rebal.sum(axis=1)
+        assert_series_equal(port.port_total_value, port_value_ts/port_value_ts[0])
 
+    def test_portfolio_backtest(self):
+        # Default setting, name = 'Portfolio'
+        port = bt.portfolio(weight=self.weight, price=self.price)
+        port_value_ts = self.asset_values_1_rebal.sum(axis=1)
+        port_value_ts = port_value_ts/port_value_ts[0]
+        assert_frame_equal(port.backtest(), port_value_ts.to_frame(name='Portfolio'))
+
+        # Setting portfolio name to 'Equal Weight'
+        name = 'Equal Weight'
+        port = bt.portfolio(weight=self.weight, price=self.price, name=name)
+        assert_frame_equal(port.backtest(), port_value_ts.to_frame(name=name))
+
+
+
+    def test_portfolio_drift_weight_with_trading_status(self):
+        # NO rebalance:
+        port = bt.portfolio(weight=self.weight.iloc[[0], :], price=self.price, trading_status=self.trading_status)
+        expect = self.asset_values_no_rebal_tst.apply(lambda ts: ts/ts.sum(), axis=1)
+        assert_frame_equal(port.ex_weight, expect)
+
+        # 1 rebalance:
+        port = bt.portfolio(weight=self.weight, price=self.price, trading_status=self.trading_status)
+        expect = self.asset_values_1_rebal_tst.apply(lambda ts: ts/ts.sum(), axis=1)
+        assert_frame_equal(port.ex_weight, expect)
+    def test_portfolio_performance_return_with_trading_status(self):
+        # NO rebalance:
+        port = bt.portfolio(weight=self.weight.iloc[[0], :], price=self.price, trading_status=self.trading_status)
+        port_value = self.asset_values_no_rebal_tst.sum(axis=1).values
+        expect_daily_ret = [0]+list(log(port_value[i+1]/port_value[i]) for i in range(len(self.index)-1))
+        expect_daily_ret = pd.Series(expect_daily_ret, index=self.index)
+        expect_total_ret = [0]+list(log(port_value[i+1]/port_value[0]) for i in range(len(self.index)-1))
+        expect_total_ret = pd.Series(expect_total_ret, index=self.index)
+        assert_series_equal(port.port_daily_ret, expect_daily_ret)
+        assert_series_equal(port.port_total_ret, expect_total_ret)
+        port_value_ts = self.asset_values_no_rebal_tst.sum(axis=1)
+        assert_series_equal(port.port_total_value, port_value_ts/port_value_ts[0])
+
+        # 1 rebalance:
+        port = bt.portfolio(weight=self.weight, price=self.price, trading_status=self.trading_status)
+        port_value = self.asset_values_1_rebal_tst.sum(axis=1).values
+        expect_daily_ret = [0]+list(log(port_value[i+1]/port_value[i]) for i in range(len(self.index)-1))
+        expect_daily_ret = pd.Series(expect_daily_ret, index=self.index)
+        expect_total_ret = [0]+list(log(port_value[i+1]/port_value[0]) for i in range(len(self.index)-1))
+        expect_total_ret = pd.Series(expect_total_ret, index=self.index)
+        assert_series_equal(port.port_daily_ret, expect_daily_ret)
+        assert_series_equal(port.port_total_ret, expect_total_ret)
+        port_value_ts = self.asset_values_1_rebal_tst.sum(axis=1)
+        assert_series_equal(port.port_total_value, port_value_ts/port_value_ts[0])
+    def test_portfolio_backtest_with_trading_status(self):
+        # Default setting, name = 'Portfolio'
+        port = bt.portfolio(weight=self.weight, price=self.price, trading_status=self.trading_status)
+        port_value_ts = self.asset_values_1_rebal_tst.sum(axis=1)
+        port_value_ts = port_value_ts/port_value_ts[0]
+        assert_frame_equal(port.backtest(), port_value_ts.to_frame(name='Portfolio'))
+
+        # Setting portfolio name to 'Equal Weight'
+        name = 'Equal Weight'
+        port = bt.portfolio(weight=self.weight, price=self.price, trading_status=self.trading_status, name=name)
+        assert_frame_equal(port.backtest(), port_value_ts.to_frame(name=name))
+
+#####################   Portfolio with Benchmark    ##############################
     def test_portfolio_with_benchmark(self):
-        pass 
+        price_weight = self.price.iloc[[0, 5], :].copy()
+        price_weight = price_weight.apply(lambda ts: ts/ts.sum(), axis=1)
+        equal_weight = pd.DataFrame(0.2, index=self.index[[0, 5]], columns=self.ticker)
 
-    
-    def test_portfolio_performance_active_return(self):
+        # Add benchmark at initiation:
+        price_weight_port = bt.portfolio(share=self.share, price=self.price, name='Price Weight', benchmark=self.weight, benchmark_name='Equal Weight')
+        assert_frame_equal(price_weight_port.weight, price_weight)
+        assert_frame_equal(price_weight_port.benchmark.weight, equal_weight)
+        self.assertEqual(price_weight_port.name, 'Price Weight')
+        self.assertEqual(price_weight_port.benchmark.name, 'Equal Weight')
+
+        # Set benchmark after initiation:
+        price_weight_port = bt.portfolio(share=self.share, price=self.price, name='Price Weight')
+        equal_weight_port = bt.portfolio(weight=self.weight, price=self.price, name='Equal Weight')
+        price_weight_port.set_benchmark(equal_weight_port)
+        assert_frame_equal(price_weight_port.weight, price_weight)
+        assert_frame_equal(price_weight_port.benchmark.weight, equal_weight)
+        self.assertEqual(price_weight_port.name, 'Price Weight')
+        self.assertEqual(price_weight_port.benchmark.name, 'Equal Weight')
+
+    def test_portfolio_backtest_with_benchmark(self):
+        # No trading status:
+        price_weight_port = bt.portfolio(share=self.share, price=self.price, name='Price Weight', benchmark=self.weight, benchmark_name='Equal Weight')
+        result = pd.DataFrame()
+        port_value_ts = self.asset_values_1_rebal_share.sum(axis=1)
+        bm_value_ts = self.asset_values_1_rebal.sum(axis=1)
+        result['Price Weight']= port_value_ts/port_value_ts[0]
+        result['Equal Weight'] = bm_value_ts/bm_value_ts[0]
+        result['Active Return'] = result['Price Weight'] - result['Equal Weight']
+        assert_frame_equal(price_weight_port.backtest(), result)
+
+        # With trading status:
+        price_weight_port = bt.portfolio(share=self.share, price=self.price, trading_status=self.trading_status, name='Price Weight', benchmark=self.weight, benchmark_name='Equal Weight')
+        result = pd.DataFrame()
+        port_value_ts = self.asset_values_1_rebal_share_tst.sum(axis=1)
+        bm_value_ts = self.asset_values_1_rebal_tst.sum(axis=1)
+        result['Price Weight']= port_value_ts/port_value_ts[0]
+        result['Equal Weight'] = bm_value_ts/bm_value_ts[0]
+        result['Active Return'] = result['Price Weight'] - result['Equal Weight']
+        assert_frame_equal(price_weight_port.backtest(), result)
+
+
+####################    Portfolio Analytic Tools    ##########################
+    def test_portfolio_performance_metrics(self):
+        pass
+    def test_portfolio_performance_metrics_with_benchmark(self):
         pass
 
-    def test_portfolio_performance_tracking_error(self):
-
-
-
-
+    def test_portfolio_performance_plot(self):
+        pass
 
 #%%%%%%%%%%%%%%%%%%%
 

@@ -75,21 +75,32 @@ class portfolio:
             self._weight = self.weight_from_share(share)
         else:
             raise TypeError('Input at least one of weight or share')
+        self._end_date = end_date
+        self.name = name
 
         # Setting benchmark from weight df or portfolio object:
         if benchmark is None:
-            pass
-        elif isinstance(benchmark, pd.DataFrame):
-            self.benchmark = portfolio(weight=benchmark, end_date=end_date, name=benchmark_name, price=price)
+            self.benchmark = None
+        else:
+            self.set_benchmark(benchmark, benchmark_name)
+        
+
+    def set_benchmark(self, benchmark, benchmark_name='Benchmark'):
+        if isinstance(benchmark, pd.DataFrame):
+            self.benchmark = portfolio(
+                weight=benchmark, 
+                name=benchmark_name, 
+                end_date=self.end_date, 
+                price=self.price, 
+                trading_status=self.trading_status
+            )
         elif isinstance(benchmark, portfolio):
             self.benchmark = benchmark
-            self.benchmark.set_price(price)
-            self.benchmark.name = benchmark_name
+            self.benchmark.set_price(self.price, self.trading_status)
+            self.benchmark.end_date= self.end_date
         else:
             raise TypeError('Unkown benchmark!')
-        
-        self._end_date = end_date
-        self.name = name
+
 
     def set_price(self, price, trading_status=None):
         '''
@@ -156,6 +167,7 @@ class portfolio:
     def end_date(self, value):
         self._end_date = value
 
+#####################   Backtesting Calculations    ####################
     @property
     def daily_ret(self):
         try:
@@ -165,7 +177,6 @@ class portfolio:
             return self._daily_ret
 
 
-    #####################  Backtesting methods   ####################
     def _drift_weight(self, initial_weight, rebalanced_weight=None, end=None):
         '''
         initial_weight: weight before rebalance with shape (1, n)
@@ -181,20 +192,20 @@ class portfolio:
 
         ######################    Rebalance    ########################
         # Prepare the initial and rebalanced weight:
-        if initial_weight.shape[0]>1:
-            print('Only the first initial weight will be used')
-            initial_weight = initial_weight.iloc[[0], :]
-        initial_weight = initial_weight/initial_weight.iloc[0, :].sum()
-
+        assert initial_weight.shape[0]==1, 'Input weight with shape (1,n)'
+        initial_weight_sum = initial_weight.iloc[0, :].sum()
+        if initial_weight_sum==1:
+            pass
+        elif initial_weight_sum==0:
+            initial_weight.iloc[0, :] = 0
+        else:
+            initial_weight.iloc[0, :] = initial_weight.iloc[0, :]/initial_weight_sum
+        
         if rebalanced_weight is None:
             rebalanced_weight = initial_weight
         else:
-            if rebalanced_weight.shape[0]>1:
-                print('Only the first rebalance weight will be used!')
-                rebalanced_weight = rebalanced_weight.iloc[[0], :]
-            rebalanced_weight = rebalanced_weight/rebalanced_weight.iloc[0, :].sum()
-            
-            assert initial_weight.index[0] == rebalanced_weight.index[0], 'Inconsistent weight data!'
+            assert rebalanced_weight.shape[0]==1, 'Input weight with shape (1,n)'
+            assert all(initial_weight.index == rebalanced_weight.index), 'Inconsistent weight data!'
 
             # Determine tradable tickers from self.trading_status:
             rebalanced_date = initial_weight.index[0]
@@ -212,7 +223,6 @@ class portfolio:
             else:
                 rebalanced_weight = roll_forward_weight
             assert abs(rebalanced_weight.iloc[0, :].sum()-1)<1e-4, 'Abnormal rebalanced weight!'
-
 
         ########################    Drifting   ##################
         # Prepare period price data:
@@ -233,7 +243,6 @@ class portfolio:
     def ex_weight(self):
         '''
         Extend the weight to all dates before self.end_date.
-        weight: The weight to extend, represented a df with row-names date, col-name security id, value the portfolio weight of col-security at row-date. 
         '''
         try:
             return self._ex_weight
@@ -268,9 +277,10 @@ class portfolio:
             daily_ret = self.daily_ret.copy()
             ex_weight = self.ex_weight
             daily_ret = daily_ret.loc[daily_ret.index&ex_weight.index, daily_ret.columns&ex_weight.columns]
-            # Calculate portfolio daily return: 
-            port_daily_ret = (ex_weight.shift(1)*daily_ret).sum(axis = 1)
-            port_daily_ret[0] = 1
+
+            port_daily_ret_values = np.log((ex_weight.shift(1)*np.exp(daily_ret)).sum(axis=1))
+            port_daily_ret_values[0] = np.nan
+            port_daily_ret = pd.Series(port_daily_ret_values, index=ex_weight.index).fillna(0)
             self._port_daiy_ret = port_daily_ret
             return port_daily_ret
         
@@ -279,24 +289,29 @@ class portfolio:
         try:
             return self._port_total_ret
         except AttributeError:
-            self._port_total_ret = self.port_daily_ret.cumprod()
+            self._port_total_ret = self.port_daily_ret.cumsum()
             return self._port_total_ret
+    
+    @property
+    def port_total_value(self):
+        return np.exp(self.port_total_ret)
+    
+    # @property
+    # def port_volatility(self):
+    #     try:
+    #         return self._port_volatility
+    #     except AttributeError:
+    #         self._port_vol
 
     def backtest(self, plot=False):
         '''
-        Backtest portfolio performance over given period.
+        Calculate portfolio performance. The period is from the first date of weight to end_date.
         '''
-        # Setup price and trading status:
-        port_total_ret_df = self.port_total_ret.to_frame(name=self.name)-1
+        backtest_result = self.port_total_value.to_frame(name=self.name)
         if self.benchmark is not None:
-            bm_total_ret_df = self.benchmark.port_total_ret.to_frame(name=self.benchmark.name)-1
-        else:
-            bm_total_ret_df = pd.DataFrame(0, index=port_total_ret_df.index, columns=['Empty Portfolio'])
-
-        result = pd.concat([port_total_ret_df, bm_total_ret_df], axis=1, sort=False)
-        result['Active Weight'] = result.iloc[:,0] - result.iloc[:,1]
-        self.backtest_result = result
-        
+            backtest_result[self.benchmark.name] = self.benchmark.port_total_value
+            backtest_result['Active Return'] = backtest_result.iloc[:, 0] - backtest_result.iloc[:, 1]
+        self.backtest_result = backtest_result
         if plot:
             self.performance_plot()
 
@@ -306,30 +321,40 @@ class portfolio:
     ####################    Performance     ##############################
     def performance_plot(self):
         '''
-        Plot 2 figures:
+        For portfolio without benchmark, return one plot of performance
+        For portfolio with benchmark, return two plots:
         1. The portfolio return and benchmark return over backtest period.
         2. The active return over the backtest period.
         '''
         result = self.backtest_result
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize = (7, 10))
-        # make a little extra space between the subplots
-        fig.subplots_adjust(hspace=0.5)
+        assert (result.shape[1]==1) or (result.shape[1]==3), 'Invalid backtest results!'
+        if result.shape[1]==1:
+            fig, ax1 = plt.subplots(1, 1)
+            ax1.plot(result.iloc[:, 0], label=result.columns[0])
+            ax1.tick_params(axis='x', rotation=25)
+            ax1.grid(color='grey', ls='--')
+            ax1.legend()
+            ax1.set_title('Total Return')
+        elif result.shape[1]==3:
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize = (7, 10))
+            # make a little extra space between the subplots
+            fig.subplots_adjust(hspace=0.5)
 
-        # Upper figure for total return:
-        ax1.plot(result.iloc[:, 0], label=result.columns[0])
-        ax1.plot(result.iloc[:, 1], label=result.columns[1])
-        ax1.tick_params(axis='x', rotation=25)
-        ax1.grid(color='grey', ls='--')
-        ax1.legend()
-        ax1.set_title('Total Return')
-        # Lower figure for active return:
-        ax2.plot(result.iloc[:, 2])
-        ax2.tick_params(axis='x', rotation=25)
-        ax2.grid(color='grey', ls='--')
-        ax2.set_title('Active Return')
+            # Upper figure for total return:
+            ax1.plot(result.iloc[:, 0], label=result.columns[0])
+            ax1.plot(result.iloc[:, 1], label=result.columns[1])
+            ax1.tick_params(axis='x', rotation=25)
+            ax1.grid(color='grey', ls='--')
+            ax1.legend()
+            ax1.set_title('Total Return')
+            # Lower figure for active return:
+            ax2.plot(result.iloc[:, 2])
+            ax2.tick_params(axis='x', rotation=25)
+            ax2.grid(color='grey', ls='--')
+            ax2.set_title('Active Return')
 
         plt.show() 
-        # return fig    
+        return fig    
     
     def performance_summary(self):
         '''
