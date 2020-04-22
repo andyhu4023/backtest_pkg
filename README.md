@@ -29,7 +29,7 @@ Definitions and assumptions:
 * Active risk is the standard deviation of daily active return multiply square root of trading days in the period. 
 * Information Ratio is active return divided by active risk.
 
-See [here](https://github.com/andyhu4023/backtest_pkg/blob/master/pkg_test/demo_backtest_pkg.py) for a small example.
+See [here](https://github.com/andyhu4023/backtest_pkg/blob/master/demo%20strategies/demo_portfolio_rating.py) for a small example.
 
 # Trading Strategy Backtest:
 (Under development)
