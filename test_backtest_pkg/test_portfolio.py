@@ -358,7 +358,7 @@ class TestPortfolio(unittest.TestCase):
         bm_value_ts = self.asset_values_1_rebal.sum(axis=1)
         result['Price Weight']= port_value_ts/port_value_ts[0]
         result['Equal Weight'] = bm_value_ts/bm_value_ts[0]
-        result['Active Return'] = result['Price Weight'] - result['Equal Weight']
+        result['Difference'] = result['Price Weight'] - result['Equal Weight']
         assert_frame_equal(price_weight_port.backtest(), result)
 
         # With trading status:
@@ -368,15 +368,109 @@ class TestPortfolio(unittest.TestCase):
         bm_value_ts = self.asset_values_1_rebal_tst.sum(axis=1)
         result['Price Weight']= port_value_ts/port_value_ts[0]
         result['Equal Weight'] = bm_value_ts/bm_value_ts[0]
-        result['Active Return'] = result['Price Weight'] - result['Equal Weight']
+        result['Difference'] = result['Price Weight'] - result['Equal Weight']
         assert_frame_equal(price_weight_port.backtest(), result)
 
 
 ####################    Portfolio Analytic Tools    ##########################
     def test_portfolio_performance_metrics(self):
-        pass
+        # No trading status:
+        price_weight_port = bt.portfolio(share=self.share, price=self.price, name='Price Weight') 
+        daily_ret = price_weight_port.port_daily_ret
+        performance_df = pd.DataFrame(index=['Price Weight'])
+        performance_df['Return'] = daily_ret.sum()
+        performance_df['Volatility'] = daily_ret.std()*sqrt(len(daily_ret))
+        performance_df['Sharpe'] = performance_df['Return']/performance_df['Volatility']
+        hist_value = np.exp(daily_ret.cumsum())
+        previous_peak = hist_value.cummax()
+        performance_df['MaxDD'] = max(1 - hist_value/previous_peak)
+        assert_series_equal(price_weight_port.period_return, performance_df['Return'])
+        assert_series_equal(price_weight_port.period_volatility, performance_df['Volatility'])
+        assert_series_equal(price_weight_port.period_sharpe_ratio, performance_df['Sharpe'])
+        assert_series_equal(price_weight_port.period_maximum_drawdown, performance_df['MaxDD'])
+
+        # No trading status:
+        price_weight_port = bt.portfolio(share=self.share, price=self.price, name='Price Weight', trading_status=self.trading_status) 
+        daily_ret = price_weight_port.port_daily_ret
+        performance_df = pd.DataFrame(index=['Price Weight'])
+        performance_df['Return'] = daily_ret.sum()
+        performance_df['Volatility'] = daily_ret.std()*sqrt(len(daily_ret))
+        performance_df['Sharpe'] = performance_df['Return']/performance_df['Volatility']
+        hist_value = np.exp(daily_ret.cumsum())
+        previous_peak = hist_value.cummax()
+        performance_df['MaxDD'] = max(1 - hist_value/previous_peak)
+        assert_series_equal(price_weight_port.period_return, performance_df['Return'])
+        assert_series_equal(price_weight_port.period_volatility, performance_df['Volatility'])
+        assert_series_equal(price_weight_port.period_sharpe_ratio, performance_df['Sharpe'])
+        assert_series_equal(price_weight_port.period_maximum_drawdown, performance_df['MaxDD'])
+        
     def test_portfolio_performance_metrics_with_benchmark(self):
-        pass
+        # No trading status:
+        price_weight_port = bt.portfolio(
+            share=self.share,
+            name='Price Weight', 
+            benchmark=self.weight, 
+            benchmark_name='Equal Weight',
+            price=self.price  
+        )
+        performance_df = pd.DataFrame()
+
+        for i in ['Price Weight', 'Equal Weight', 'Active']:
+            if i == 'Price Weight':
+                daily_ret = price_weight_port.port_daily_ret
+            elif i == 'Equal Weight':
+                daily_ret = price_weight_port.benchmark.port_daily_ret
+            elif i == 'Active':
+                daily_ret = price_weight_port.port_daily_ret - price_weight_port.benchmark.port_daily_ret
+
+            performance_df.loc[i, 'Return'] = daily_ret.sum()
+            performance_df.loc[i, 'Volatility'] = daily_ret.std()*sqrt(len(daily_ret))
+            performance_df.loc[i, 'Sharpe'] = performance_df.loc[i, 'Return']/performance_df.loc[i, 'Volatility']
+            if i != 'Active':
+                hist_value = np.exp(daily_ret.cumsum())
+            else:
+                hist_value = price_weight_port.port_total_value - price_weight_port.benchmark.port_total_value
+            previous_peak = hist_value.cummax()
+            performance_df.loc[i, 'MaxDD'] = max(1 - hist_value/previous_peak)
+
+        assert_series_equal(price_weight_port.period_return, performance_df['Return'])
+        assert_series_equal(price_weight_port.period_volatility, performance_df['Volatility'])
+        assert_series_equal(price_weight_port.period_sharpe_ratio, performance_df['Sharpe'])
+        assert_series_equal(price_weight_port.period_maximum_drawdown, performance_df['MaxDD'])
+
+        # No trading status:
+        price_weight_port = bt.portfolio(
+            share=self.share,
+            name='Price Weight', 
+            benchmark=self.weight, 
+            benchmark_name='Equal Weight',
+            price=self.price,
+            trading_status=self.trading_status  
+        )
+        performance_df = pd.DataFrame()
+
+        for i in ['Price Weight', 'Equal Weight', 'Active']:
+            if i == 'Price Weight':
+                daily_ret = price_weight_port.port_daily_ret
+            elif i == 'Equal Weight':
+                daily_ret = price_weight_port.benchmark.port_daily_ret
+            elif i == 'Active':
+                daily_ret = price_weight_port.port_daily_ret - price_weight_port.benchmark.port_daily_ret
+
+            performance_df.loc[i, 'Return'] = daily_ret.sum()
+            performance_df.loc[i, 'Volatility'] = daily_ret.std()*sqrt(len(daily_ret))
+            performance_df.loc[i, 'Sharpe'] = performance_df.loc[i, 'Return']/performance_df.loc[i, 'Volatility']
+            if i != 'Active':
+                hist_value = np.exp(daily_ret.cumsum())
+            else:
+                hist_value = price_weight_port.port_total_value - price_weight_port.benchmark.port_total_value
+            previous_peak = hist_value.cummax()
+            performance_df.loc[i, 'MaxDD'] = max(1 - hist_value/previous_peak)
+
+        assert_series_equal(price_weight_port.period_return, performance_df['Return'])
+        assert_series_equal(price_weight_port.period_volatility, performance_df['Volatility'])
+        assert_series_equal(price_weight_port.period_sharpe_ratio, performance_df['Sharpe'])
+        assert_series_equal(price_weight_port.period_maximum_drawdown, performance_df['MaxDD'])
 
     def test_portfolio_performance_plot(self):
         pass

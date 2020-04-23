@@ -5,50 +5,6 @@ import warnings
 from math import sqrt
 
 
-def annualized_performance_metric(daily_ret_ts, tolerance=10**(-4), annual_trading_days=250):
-    output = pd.Series()
-    annualized_return= daily_ret_ts.prod()**(annual_trading_days/len(daily_ret_ts))-1
-    output['Annualized_Return'] =annualized_return
-    annualized_volatility = daily_ret_ts.std()*sqrt(annual_trading_days)
-    if annualized_volatility < tolerance:
-        annualized_volatility=np.nan
-    output['Annualized_Volatility'] = annualized_volatility
-    sharpe_ratio = annualized_return/annualized_volatility
-    output['Annualized_Sharpe_Ratio'] = sharpe_ratio
-
-    return output
-
-def period_performance_metric(daily_ret_ts, tolerance=10**(-4)):
-    output = pd.Series()
-    period_return= daily_ret_ts.prod()-1
-    output['Period_Return'] =period_return
-    period_volatility = daily_ret_ts.std()*sqrt(len(daily_ret_ts))
-    if period_volatility < tolerance:
-        period_volatility=np.nan
-    output['Period_Volatility'] = period_volatility
-    sharpe_ratio = period_return/period_volatility
-    output['Sharpe_Ratio'] = sharpe_ratio
-
-    return output
-
-
-def active_performance_metric(port_ret_ts, bm_ret_ts, tolerance=10**(-4)):
-    assert (port_ret_ts.index == bm_ret_ts.index).all(), 'Two time series should be in the same period!'
-    output = pd.Series()
-    output['Active_Return'] = port_ret_ts.prod() - bm_ret_ts.prod()
-    active_risk = (port_ret_ts-bm_ret_ts).std()*sqrt(len(port_ret_ts)) 
-    if active_risk < tolerance:
-        active_risk = np.nan
-    output['Active_Risk'] = active_risk
-    output['Information_Ratio'] = output['Active_Return']/output['Active_Risk']
-
-    return output
-
-def max_drawdown(total_ret_ts):
-    previous_peak = total_ret_ts.cummax()
-    drawdown_ts = (previous_peak - total_ret_ts)/previous_peak 
-    return max(drawdown_ts)
-
 class portfolio:
     '''
     The universe and the valid testing period will be defined by the price data.
@@ -296,13 +252,6 @@ class portfolio:
     def port_total_value(self):
         return np.exp(self.port_total_ret)
     
-    # @property
-    # def port_volatility(self):
-    #     try:
-    #         return self._port_volatility
-    #     except AttributeError:
-    #         self._port_vol
-
     def backtest(self, plot=False):
         '''
         Calculate portfolio performance. The period is from the first date of weight to end_date.
@@ -310,7 +259,7 @@ class portfolio:
         backtest_result = self.port_total_value.to_frame(name=self.name)
         if self.benchmark is not None:
             backtest_result[self.benchmark.name] = self.benchmark.port_total_value
-            backtest_result['Active Return'] = backtest_result.iloc[:, 0] - backtest_result.iloc[:, 1]
+            backtest_result['Difference'] = backtest_result.iloc[:, 0] - backtest_result.iloc[:, 1]
         self.backtest_result = backtest_result
         if plot:
             self.performance_plot()
@@ -318,7 +267,77 @@ class portfolio:
         return self.backtest_result
         
 
-    ####################    Performance     ##############################
+####################    Performance Metrics     ######################
+    @property
+    def period_return(self):
+        try:
+            return self._period_return
+        except AttributeError:
+            self._period_return = pd.Series(name='Return')
+            self._period_return[self.name] = self.port_total_ret[-1]
+            if self.benchmark is not None:
+                self._period_return[self.benchmark.name] = self.benchmark.port_total_ret[-1]
+                self._period_return['Active'] = self._period_return[0] - self._period_return[1]
+            return self._period_return
+    
+    @property
+    def period_volatility(self):
+        try:
+            return self._period_volatility
+        except AttributeError:
+            def vol(ts):
+                return ts.std()*sqrt(len(ts))
+
+            self._period_volatility= pd.Series(name='Volatility')
+            self._period_volatility[self.name] = vol(self.port_daily_ret)
+            if self.benchmark is not None:
+                self._period_volatility[self.benchmark.name] = vol(self.benchmark.port_daily_ret)
+                self._period_volatility['Active'] = vol(self.port_daily_ret - self.benchmark.port_daily_ret)
+            return self._period_volatility
+    
+    @property
+    def period_sharpe_ratio(self):
+        try:
+            return self._period_sharpe_ratio
+        except AttributeError:
+            self._period_sharpe_ratio = self.period_return/self.period_volatility
+            self._period_sharpe_ratio.name = 'Sharpe'
+            return self._period_sharpe_ratio
+
+    @property
+    def period_maximum_drawdown(self):
+        try:
+            return self._period_maximum_drawdown
+        except AttributeError:
+            def mdd(ts):
+                drawdown = 1 - ts/ts.cummax()
+                return max(drawdown)
+
+            self._period_maximum_drawdown= pd.Series(name='MaxDD')
+            self._period_maximum_drawdown[self.name] = mdd(self.port_total_value)
+            if self.benchmark is not None:
+                self._period_maximum_drawdown[self.benchmark.name] = mdd(self.benchmark.port_total_value)
+                self._period_maximum_drawdown['Active'] = mdd(self.port_total_value- self.benchmark.port_total_value)
+            return self._period_maximum_drawdown
+
+    def performance_summary(self):
+        '''
+        Provide a table of total return, volitility, Sharpe ratio, maximun drawdown for portfoilo, benchmark and active (if any).
+        '''
+        performance_summary_df = pd.DataFrame(dict(
+            Return=self.period_return,
+            Volatility=self.period_volatility,
+            Sharpe=self.period_sharpe_ratio,
+            MaxDD=self.period_maximum_drawdown
+        ))
+        # performance_summary_df = performance_summary_df.style.format({
+        #     'Return': '{:,.2%}'.format,
+        #     'Volatility': '{:,.2%}'.format,
+        #     'Sharpe': '{:,.2f}'.format,
+        #     'MaxDD': '{:,.2%}'.format,
+        # })
+        return performance_summary_df
+
     def performance_plot(self):
         '''
         For portfolio without benchmark, return one plot of performance
@@ -356,61 +375,6 @@ class portfolio:
         plt.show() 
         return fig    
     
-    def performance_summary(self):
-        '''
-        Provide a table of total return, volitility, Sharpe ratio for portfoilo, benchmark and active weight.
-        '''
-        try:
-            return self._performance_summary
-        except AttributeError:
-            summary_table=pd.DataFrame(columns=['Return', 'Volatility', 'Sharpe_Ratio'])
-            port_metric = period_performance_metric(self.port_daily_ret)
-            port_metric.index = summary_table.columns
-            summary_table.loc[self.name, :] = port_metric
-            bm_metric = period_performance_metric(self.benchmark.port_daily_ret) 
-            bm_metric.index = summary_table.columns
-            summary_table.loc[self.benchmark.name, :] = bm_metric
-            active_metric = active_performance_metric(self.port_daily_ret, self.benchmark.port_daily_ret) 
-            active_metric.index = summary_table.columns
-            summary_table.loc['Active', :] = active_metric
-            # Formatting before output:
-            summary_table = summary_table.style.format({
-                'Return': '{:,.2%}'.format,
-                'Volatility': '{:,.2%}'.format,
-                'Sharpe_Ratio': '{:,.2f}'.format,
-            })
-
-            self._performance_summary = summary_table
-            return self._performance_summary
-
-    @property
-    def period_performance(self):
-        try:
-            return self._period_performance
-        except AttributeError:
-            # Prepare portfolio, benchmark, active return:
-            port_ret= self.port_daily_ret
-            bm_ret = self.benchmark.port_daily_ret
-            daily_active_ret = port_ret - bm_ret
-            # Label each period by rebalance date from weight attribute:
-            period_ts = pd.Series(port_ret.index.map(lambda s: (s>self.weight.index).sum()), index=port_ret.index)
-            period_ts.name = 'Period'
-            # Calculate performance metric on each period:
-            period_result = pd.DataFrame()
-            period_result[self.name] = port_ret.groupby(period_ts).agg('prod') -1
-            period_result[self.benchmark.name] = bm_ret.groupby(period_ts).agg('prod') -1
-            period_result['Active Return'] = period_result[self.name] - period_result[self.benchmark.name]
-            active_risk =  daily_active_ret.groupby(period_ts).agg(lambda s:s.std()*len(s) )
-            tolerance = 10**(-5)
-            active_risk[active_risk<tolerance] = np.nan
-            period_result['Active Risk'] = active_risk
-            period_result['Information Ratio'] = period_result['Active Return']/period_result['Active Risk']
-            period_result = period_result.drop(index = 0)
-            period_result = period_result.style.format('{:.2%}'.format)
-            period_result = period_result.format({'Information Ratio': '{:,.2f}'.format})
-            self._period_performance = period_result
-
-            return self._period_performance
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
