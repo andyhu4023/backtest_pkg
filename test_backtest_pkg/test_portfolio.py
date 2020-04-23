@@ -5,6 +5,7 @@ import backtest_pkg as bt
 import pandas as pd 
 import numpy as np
 from math import sqrt, log, sin, pi
+from IPython import display
 
 def cal_std(data):
     if len(data)<=1:
@@ -372,7 +373,7 @@ class TestPortfolio(unittest.TestCase):
         assert_frame_equal(price_weight_port.backtest(), result)
 
 
-####################    Portfolio Analytic Tools    ##########################
+####################    Portfolio Analytic Tools    ####################
     def test_portfolio_performance_metrics(self):
         # No trading status:
         price_weight_port = bt.portfolio(share=self.share, price=self.price, name='Price Weight') 
@@ -473,7 +474,54 @@ class TestPortfolio(unittest.TestCase):
         assert_series_equal(price_weight_port.period_maximum_drawdown, performance_df['MaxDD'])
 
     def test_portfolio_performance_plot(self):
-        pass
+        from pandas.plotting import register_matplotlib_converters
+        register_matplotlib_converters()
+
+        # Portfolio without benchamrk:
+        price_weight_port = bt.portfolio(
+            share=self.share, 
+            name='Price Weight',
+            price=self.price, 
+        ) 
+        price_weight_port.backtest()
+        performance_plot = price_weight_port.performance_plot()  # figure object
+        dates = performance_plot.axes[0].lines[0].get_xdata()
+        total_vales = performance_plot.axes[0].lines[0].get_ydata()
+        plot_ts = pd.Series(total_vales, index=dates)
+        expect_ts = self.asset_values_1_rebal_share.sum(axis=1)
+        expect_ts = expect_ts/expect_ts[0]
+        assert_series_equal(plot_ts, expect_ts)
+
+        # Portfolio with benchmark:
+        price_weight_port = bt.portfolio(
+            share=self.share,
+            name='Price Weight', 
+            benchmark=self.weight, 
+            benchmark_name='Equal Weight',
+            price=self.price
+        )
+        price_weight_port.backtest()
+        performance_plot = price_weight_port.performance_plot()  # figure object
+        # Plot 1: portfolio values and benchmark values
+        dates = performance_plot.axes[0].lines[0].get_xdata()
+        port_vales = performance_plot.axes[0].lines[0].get_ydata()
+        bm_vales = performance_plot.axes[0].lines[1].get_ydata()
+        plot_port_ts = pd.Series(port_vales, index=dates)
+        plot_bm_ts = pd.Series(bm_vales, index=dates)
+        expect_port_ts = self.asset_values_1_rebal_share.sum(axis=1)
+        expect_port_ts = expect_port_ts/expect_port_ts[0]
+        expect_bm_ts = self.asset_values_1_rebal.sum(axis=1) 
+        expect_bm_ts = expect_bm_ts/expect_bm_ts[0]
+        assert_series_equal(plot_port_ts, expect_port_ts)
+        assert_series_equal(plot_bm_ts, expect_bm_ts)
+        # Plot 2: Value differences
+        diff_values = performance_plot.axes[1].lines[0].get_ydata()
+        plot_diff_ts = pd.Series(diff_values, index = dates)
+        expect_diff_ts = expect_port_ts - expect_bm_ts
+        assert_series_equal(plot_diff_ts, expect_diff_ts)
+
+
+
 
 #%%%%%%%%%%%%%%%%%%%
 
