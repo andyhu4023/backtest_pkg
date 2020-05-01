@@ -1,6 +1,7 @@
 import pandas as pd 
 import numpy as np 
 from collections import namedtuple
+from datetime import datetime
 
 Account = namedtuple('Account', ['Date', 'Holdings'])
 # date: datetime object, the version/standing point of account information
@@ -92,20 +93,35 @@ class market:
     def execute(self, order, trading_system, date):
         if order.Type == 'market':
             price_open = self.O.loc[date, order.Ticker]
-            trading_system.add_transaction(date = date, ticker = order.Ticker, quantity = order.Quantity, price = price_open)
+            trading_system._update_transaction(
+                date = date, 
+                ticker = order.Ticker, 
+                quantity = order.Quantity, 
+                price = price_open
+            )
             return True
 
         elif order.Type == 'limit':
             if order.Quantity == 0:
                 return True
-            elif order.Quantiy >0:
+            elif order.Quantity >0:
                 price_open = self.O.loc[date, order.Ticker]
                 price_low = self.L.loc[date, order.Ticker]
                 if order.Price > price_open:
-                    trading_system.add_transaction(date=date, ticker=order.Ticker, quantity=order.Quantity, price=price_open)
+                    trading_system._update_transaction(
+                        date=date, 
+                        ticker=order.Ticker, 
+                        quantity=order.Quantity, 
+                        price=price_open
+                    )
                     return True
                 elif order.Price > price_low:
-                    trading_system.add_transaction(date=date, ticker=order.Ticker, quantity=order.Quantity, price=order.Price)
+                    trading_system._update_transaction(
+                        date=date, 
+                        ticker=order.Ticker, 
+                        quantity=order.Quantity, 
+                        price=order.Price
+                    )
                     return True
                 else:
                     return False
@@ -114,11 +130,20 @@ class market:
                 price_open = self.O.loc[date, order.Ticker]
                 price_high = self.H.loc[date, order.Ticker]
                 if order.Price < price_open:
-                    trading_system.add_transaction(date=date, ticker=order.Ticker, quantity=order.Quantity, price=price_open)
+                    trading_system._update_transaction(
+                        date=date, 
+                        ticker=order.Ticker, 
+                        quantity=order.Quantity, 
+                        price=price_open
+                    )
                     return True
-                    trading_system.add(date)
                 elif order.Price<price_high:
-                    trading_system.add_transaction(date=date, ticker=order.Ticker, quantity=order.Quantity, price=order.Price)
+                    trading_system._update_transaction(
+                        date=date, 
+                        ticker=order.Ticker, 
+                        quantity=order.Quantity, 
+                        price=order.Price
+                    )
                     return True
                 else:
                     return False
@@ -127,7 +152,12 @@ class market:
             price_high = self.H.loc[date, order.Ticker]
             price_low = self.L.loc[date, order.Ticker]
             if (order.Price <= price_high) and (order.Price>= price_low):
-                trading_system.add_transaction(date=date, ticker=order.Ticker, quantity=order.Quantity, price=order.Price)
+                trading_system._update_transaction(
+                    date=date, 
+                    ticker=order.Ticker, 
+                    quantity=order.Quantity, 
+                    price=order.Price
+                )
                 return True
             else:
                 return False
@@ -138,7 +168,8 @@ class market:
     def execute_orders(self, trading_system, date):
         execution_results = list()
         for order in trading_system.order_book:
-            execution_results.append(self.execute(order, trading_system, date))
+            execution = self.execute(order, trading_system, date)
+            execution_results.append(execution)
         trading_system._update_account(date)
         trading_system._update_order_book(execution_results)
 
@@ -150,70 +181,81 @@ class market:
 
 class trading_system:
     def __init__(self):
-        self._account = Account(None, dict())
-        self.transaction = pd.DataFrame(columns=['Date', 'Ticker', 'Quantity'])
+        self.__account = Account(None, dict())
+        self.__transaction = pd.DataFrame(columns=['Date', 'Ticker', 'Quantity'])
+        self.__transaction = self.__transaction.astype({
+            'Ticker': str,
+            'Quantity': float
+        })
+        self.order_book = list()
+
+    @property
+    def account(self):
+        return self.__account
+    @property
+    def transaction(self):
+        return self.__transaction
+
+    # Create or cancle orders:
+    def create_order(self, order):
+        self.order_book.append(order)
+        return self.order_book
     
-    def add_transaction(self, date, ticker, quantity, price):
+    def cancel_order(self, order):
+        self.order_book.remove(order)
+        return self.order_book
+
+    # Methods for execution orders:
+    def _update_transaction(self, date, ticker, quantity, price):
         trading_amount = - quantity * price
-        self.transaction.append(
+        self.__transaction = self.__transaction.append(
             {'Date': date, 'Ticker': ticker, 'Quantity':quantity},
             ignore_index=True
         )
-        trading_system.transaction.append(
+        self.__transaction = self.__transaction.append(
             {'Date': date, 'Ticker': 'Cash', 'Quantity': trading_amount},
             ignore_index=True
         )
 
-    def _update_account(self, date):
-        transaction_record = self.transaction.copy()
-        transaction_record = transaction_record.loc[(transaction_record.Date <= date) & (transaction_record.Date > self._account.Date), :]
-        for _, tran in transaction_record.iterrows():
-            holdings = self._account.Holdings
-            ticker = tran['Ticker']
-            qty = tran['Quantity']
-            holdings[ticker] = holdings.get(ticker, 0) + qty
-            self._account.Holdings = holdings
-        self._account.Date = date
-        return self._account
+    def _update_account(self, date=None):
+        transaction_record = self.transaction
+        if self.__account.Date is not None:
+            transaction_record = transaction_record.loc[transaction_record.Date > self.__account.Date, :]
+        if date is not None:
+            transaction_record = transaction_record.loc[transaction_record.Date <= date]
+        else:
+            date = max(self.__account.Date, max(transaction_record.index))
+        
+        if transaction_record.shape[0]>0:
+            for _, tran in transaction_record.iterrows():
+                holdings = self.__account.Holdings
+                ticker = tran['Ticker']
+                qty = tran['Quantity']
+                holdings[ticker] = holdings.get(ticker, 0) + qty
 
-    def _reset_account(self, date):
-        self._account = Account(date, dict())
+            self.__account = Account(date, holdings)
+        return self.__account
 
-    def create_order(self, order):
-        try:
-            self.order_book.append(order)
-        except AttributeError:
-            self.order_book = list()
-            self.order_book.append(order)
-        return self.order_book
-    
-    def cancel_order(self, order):
-        try:
-            self.order_book.remove(order)
-        except AttributeError:
-            self.order_book = list()
-        return self.order_book
-    
-    def reset_order_book(self):
-        self.order_book = list()
-    
     def _update_order_book(self, execution_results):
         assert len(self.order_book)==len(execution_results), 'Inconsistent execution results!'
         self.order_book = [o for (o, r) in zip(self.order_book, execution_results) if not r]
+        return self.order_book
 
+    # Reset methods:
+    def _reset_transaction(self):
+        self.__transaction = pd.DataFrame(columns=['Date', 'Ticker', 'Quantity'])
         
-    def holding(self, date):
-        transaction_record = self.transaction.copy()
-        transaction_record = transaction_record.loc[transaction_record.Date <= date, :]
-        holdings = dict()
-        for _, tran in transaction_record.iterrows():
-            ticker = tran['Ticker']
-            qty = tran['Quantity']
-            holdings[ticker] = holdings.get(ticker, 0) + qty
-        return holdings
+    def _reset_account(self, date):
+        self.__account = Account(None, dict())
 
+    def reset_order_book(self):
+        self.order_book = list()
 
     
+    
+
+    
+#%%%%%%%%%%%%%%%%
 
 
 
@@ -222,3 +264,5 @@ class trading_system:
 
 
 
+
+# %%
