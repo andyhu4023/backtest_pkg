@@ -15,9 +15,12 @@ Order = namedtuple('Order', ['Type', 'Ticker', 'Quantity', 'Price'])
 
 class market:
     '''
+<<<<<<< HEAD
     The market class replicate information (mostly price) from the market. The main attributes are the universe, which contains stocks available in this market, and price, which contain price information of stocks in the universe.
     '''
     '''
+=======
+>>>>>>> 61e4732d233a7991267ffeb375cc3865a0a8986d
     def __init__(self, adj_close_price=None, open_price=None, high_price=None, low_price=None, close_price=None, volume = None):
         self.adj_close = adj_close_price
         self.O = open_price
