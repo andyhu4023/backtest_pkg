@@ -4,15 +4,20 @@ from collections import namedtuple
 from datetime import datetime
 
 Account = namedtuple('Account', ['Date', 'Holdings'])
-# date: datetime object, the version/standing point of account information
+# date: datetime object, the version/standing-date of account information
 # holdings: a dict with tickers as keys and holding shares/quantity as values.
+
 Order = namedtuple('Order', ['Type', 'Ticker', 'Quantity', 'Price'])
-# type: string in ['market', 'limit', 'target']
+# type: string, value in ['market', 'limit_up', 'limit_down', 'target']
 # ticker: string, the ticker/name of securities to trade
 # quantiy: integer, positve or negative, share/quantiy to trade
-# price: float,  price information for 'limit' or 'target' orders
+# price: float,  price information for 'limit_up', 'limit_down' or 'target' orders
 
 class market:
+    '''
+    The market class replicate information (mostly price) from the market. The main attributes are the universe, which contains stocks available in this market, and price, which contain price information of stocks in the universe.
+    '''
+    '''
     def __init__(self, adj_close_price=None, open_price=None, high_price=None, low_price=None, close_price=None, volume = None):
         self.adj_close = adj_close_price
         self.O = open_price
@@ -20,7 +25,120 @@ class market:
         self.L = low_price
         self.C =close_price
         self.V = volume
+    '''
 
+    def __init__(self):
+        self.universe = set()
+        self.price = dict()
+    
+    def add_stock(self, ticker, price_data):
+        '''
+        ticker: string, identifier of the new stock
+        price_data: (part of) open, high, low, close, adj_close, volume data of given stock. Use standard column names.
+        '''
+        self.universe.add(ticker)
+        self.price[ticker] = price_data
+
+    def remove_stock(self, ticker):
+        '''
+        ticker: string, identifier of the stock to remove
+        '''
+        self.universe.discard(ticker)
+        del self.price[ticker]
+
+    def execute(self, order, trading_system, date):
+        # Market order: (execute at market open)
+        if order.Type == 'market':
+            price_open = self.price[order.Ticker].loc[date, 'open']
+            trading_system._update_transaction(
+                date = date, 
+                ticker = order.Ticker, 
+                quantity = order.Quantity, 
+                price = price_open
+            )
+            return True
+
+        # Target order: (execute at target if in range low:high)
+        elif order.Type == 'target':
+            price_high = self.price[order.Ticker].loc[date, 'high']
+            price_low = self.price[order.Ticker].loc[date, 'low']
+            if (order.Price <= price_high) and (order.Price>= price_low):
+                trading_system._update_transaction(
+                    date=date, 
+                    ticker=order.Ticker, 
+                    quantity=order.Quantity, 
+                    price=order.Price
+                )
+                return True
+            else:
+                return False
+
+        # Limit up order: (execute at target or lower if in range low:high)
+        elif order.Type == 'limit_up':
+            price_open = self.price[order.Ticker].loc[date, 'open']
+            price_high = self.price[order.Ticker].loc[date, 'high']
+            price_low = self.price[order.Ticker].loc[date, 'low']
+            if order.Price >= price_open:
+                trading_system._update_transaction(
+                    date=date, 
+                    ticker=order.Ticker, 
+                    quantity=order.Quantity, 
+                    price=price_open
+                )
+                return True
+            elif order.Price >= price_low:
+                trading_system._update_transaction(
+                    date=date, 
+                    ticker=order.Ticker, 
+                    quantity=order.Quantity, 
+                    price=order.Price
+                )
+            else:
+                return False
+
+        # Limit down order: (execute at target or above if in range low:high)
+        elif order.Type == 'limit_down':
+            price_open = self.price[order.Ticker].loc[date, 'open']
+            price_high = self.price[order.Ticker].loc[date, 'high']
+            price_low = self.price[order.Ticker].loc[date, 'low']
+            if order.Price <= price_open:
+                trading_system._update_transaction(
+                    date=date, 
+                    ticker=order.Ticker, 
+                    quantity=order.Quantity, 
+                    price=price_open
+                )
+                return True
+            elif order.Price <= price_high:
+                trading_system._update_transaction(
+                    date=date, 
+                    ticker=order.Ticker, 
+                    quantity=order.Quantity, 
+                    price=order.Price
+                )
+            else:
+                return False
+
+        else:
+            raise TypeError('Unknown Order Type!')
+
+    def execute_orders(self, trading_system, date):
+        execution_results = list()
+        for order in trading_system.order_book:
+            execution = self.execute(order, trading_system, date)
+            execution_results.append(execution)
+        trading_system._update_account(date)
+        trading_system._update_order_book(execution_results)
+
+    def evaluate(self, account):
+        '''
+        No dividend version. (Use close price)
+        '''
+        value = account.Holdings['Cash']
+        value += sum(account.Holdings[ticker]*self.price.loc[account.Date, 'close'] for ticker in account.Holdings if ticker!='Cash')
+        return value
+
+    '''
     @property
     def ret(self):
         # Lazy calculation of return from adjusted price.
@@ -89,97 +207,12 @@ class market:
         rsi_df = abs(up_move)/total_move
         rsi_df.loc[total_move<1e-10] = np.nan
         return rsi_df.to_frame(name=close_change_df.index[-1]).T
-        
-    def execute(self, order, trading_system, date):
-        if order.Type == 'market':
-            price_open = self.O.loc[date, order.Ticker]
-            trading_system._update_transaction(
-                date = date, 
-                ticker = order.Ticker, 
-                quantity = order.Quantity, 
-                price = price_open
-            )
-            return True
-
-        elif order.Type == 'limit':
-            if order.Quantity == 0:
-                return True
-            elif order.Quantity >0:
-                price_open = self.O.loc[date, order.Ticker]
-                price_low = self.L.loc[date, order.Ticker]
-                if order.Price > price_open:
-                    trading_system._update_transaction(
-                        date=date, 
-                        ticker=order.Ticker, 
-                        quantity=order.Quantity, 
-                        price=price_open
-                    )
-                    return True
-                elif order.Price > price_low:
-                    trading_system._update_transaction(
-                        date=date, 
-                        ticker=order.Ticker, 
-                        quantity=order.Quantity, 
-                        price=order.Price
-                    )
-                    return True
-                else:
-                    return False
-            
-            elif order.Quantity <0:
-                price_open = self.O.loc[date, order.Ticker]
-                price_high = self.H.loc[date, order.Ticker]
-                if order.Price < price_open:
-                    trading_system._update_transaction(
-                        date=date, 
-                        ticker=order.Ticker, 
-                        quantity=order.Quantity, 
-                        price=price_open
-                    )
-                    return True
-                elif order.Price<price_high:
-                    trading_system._update_transaction(
-                        date=date, 
-                        ticker=order.Ticker, 
-                        quantity=order.Quantity, 
-                        price=order.Price
-                    )
-                    return True
-                else:
-                    return False
-
-        elif order.Type == 'target':
-            price_high = self.H.loc[date, order.Ticker]
-            price_low = self.L.loc[date, order.Ticker]
-            if (order.Price <= price_high) and (order.Price>= price_low):
-                trading_system._update_transaction(
-                    date=date, 
-                    ticker=order.Ticker, 
-                    quantity=order.Quantity, 
-                    price=order.Price
-                )
-                return True
-            else:
-                return False
-            
-        else:
-            raise TypeError('Unknown Order Type!')
-
-    def execute_orders(self, trading_system, date):
-        execution_results = list()
-        for order in trading_system.order_book:
-            execution = self.execute(order, trading_system, date)
-            execution_results.append(execution)
-        trading_system._update_account(date)
-        trading_system._update_order_book(execution_results)
-
-    def evaluate(self, account):
-        price = self.C.loc[account.Date]
-        price['Cash'] = 1
-        value = sum(account.Holdings[ticker]*price[ticker] for ticker in account.Holdings)
-        return value
+    '''
 
 class trading_system:
+    '''
+    Trading system is a class of investment account
+    '''
     def __init__(self):
         self.__account = Account(None, dict())
         self.__transaction = pd.DataFrame(columns=['Date', 'Ticker', 'Quantity'])
@@ -189,6 +222,17 @@ class trading_system:
         })
         self.order_book = list()
 
+    # Reset methods:
+    def _reset_transaction(self):
+        self.__transaction = pd.DataFrame(columns=['Date', 'Ticker', 'Quantity'])
+        
+    def _reset_account(self, date):
+        self.__account = Account(None, dict())
+
+    def _reset_order_book(self):
+        self.order_book = list()
+
+    # Private account and transaction: gettable but not settable.
     @property
     def account(self):
         return self.__account
@@ -196,7 +240,7 @@ class trading_system:
     def transaction(self):
         return self.__transaction
 
-    # Create or cancle orders:
+####################       Methods to Manage Orders              ######################################
     def create_order(self, order):
         self.order_book.append(order)
         return self.order_book
@@ -204,7 +248,19 @@ class trading_system:
     def cancel_order(self, order):
         self.order_book.remove(order)
         return self.order_book
+    
+    def clear_order(self):
+        self.order_book = []
+        return self.order_book
+    
+    def filter_order(self, condition):
+        '''
+        condition: a function of order, return True or False.
+        '''
+        self.order_book = [o for o in self.order_book if condition(o)]
+        return self.order_book
 
+####################     Update methodes for Order Execution       ###############################
     # Methods for execution orders:
     def _update_transaction(self, date, ticker, quantity, price):
         trading_amount = - quantity * price
@@ -241,15 +297,6 @@ class trading_system:
         self.order_book = [o for (o, r) in zip(self.order_book, execution_results) if not r]
         return self.order_book
 
-    # Reset methods:
-    def _reset_transaction(self):
-        self.__transaction = pd.DataFrame(columns=['Date', 'Ticker', 'Quantity'])
-        
-    def _reset_account(self, date):
-        self.__account = Account(None, dict())
-
-    def reset_order_book(self):
-        self.order_book = list()
 
     
     

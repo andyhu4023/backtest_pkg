@@ -7,30 +7,41 @@ import numpy as np
 
 class TestTrading(unittest.TestCase):
     def setUp(self):
-        def construct_market(data):
-            ticker = ['Test Ticker']
+        def construct_price_data(data):
             index = pd.date_range('2020-01-01', periods=len(data), freq='D')
-            data_dict = dict(
-                adj_close_price = pd.DataFrame(data, index=index, columns=ticker),
-                open_price = pd.DataFrame(data, index=index, columns=ticker),
-                high_price = pd.DataFrame([i*1.2 for i in data], index=index, columns=ticker),
-                low_price = pd.DataFrame([i*0.8 for i in data], index=index, columns=ticker),
-                close_price = pd.DataFrame(data, index=index, columns=ticker),
-            )
-            return data_dict
-        data = [1, 3, 2, 4, 3, 5]
-        data_dict = construct_market(data)
-        self.index = data_dict['adj_close_price'].index
-        self.ticker= data_dict['adj_close_price'].columns
-        self.market = bt.market(**data_dict)
+            price_data = pd.DataFrame(dict(
+                open = data, 
+                high = [i*1.2 for i in data],
+                low =[i*0.8 for i in data], 
+                close = data,
+                adj_close = data,
+            ), index = index)
+            return price_data
+        
+        ticker1 = 'ticker1'
+        data1 = [1, 3, 2, 4, 3, 5]
+        ticker2 = 'ticker2'
+        data2 = [5, 3, 4, 2, 3, 1]
+        self.universe = [ticker1, ticker2]
+        self.price1 = construct_price_data(data1)
+        self.price2 = construct_price_data(data2)
+        self.market = bt.market()
+        self.market.add_stock(ticker1, self.price1)
+        self.market.add_stock(ticker2, self.price2)
+        self.trading_system = bt.trading_system()
 
-    def test_initiation(self):
-        trading_system = bt.trading_system()
+    def test_set_up(self):
+        # Check initial state of market:
+        self.assertEqual(self.market.universe = self.universe)
+        assert_frame_equal(self.market)
+
+
+        # Checking initial state of trading system:
         transaction_df = pd.DataFrame(columns=['Date', 'Ticker', 'Quantity'])
         transaction_df = transaction_df.astype({'Ticker': str, 'Quantity': float})
-        assert_frame_equal(trading_system.transaction, transaction_df)
-        self.assertEqual(trading_system.account, (None, dict()))
-        self.assertEqual(trading_system.order_book, list())
+        assert_frame_equal(self.trading_system.transaction, transaction_df)
+        self.assertEqual(self.trading_system.account, (None, dict()))
+        self.assertEqual(self.trading_system.order_book, list())
         
 
     def test_market_order(self):
