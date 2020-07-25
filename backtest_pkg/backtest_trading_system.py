@@ -15,12 +15,9 @@ Order = namedtuple('Order', ['Type', 'Ticker', 'Quantity', 'Price'])
 
 class market:
     '''
-<<<<<<< HEAD
     The market class replicate information (mostly price) from the market. The main attributes are the universe, which contains stocks available in this market, and price, which contain price information of stocks in the universe.
     '''
     '''
-=======
->>>>>>> 61e4732d233a7991267ffeb375cc3865a0a8986d
     def __init__(self, adj_close_price=None, open_price=None, high_price=None, low_price=None, close_price=None, volume = None):
         self.adj_close = adj_close_price
         self.O = open_price
@@ -48,6 +45,25 @@ class market:
         '''
         self.universe.discard(ticker)
         del self.price[ticker]
+    
+    def get_price(self, ticker, start_date=None, end_date=None, period=0):
+        '''
+        ticker: string, identifier of stock to look up
+        start_date: string/datetime, start of price period in 'yyyy-mm-dd'
+        end_date: string/datetime, end of price period in 'yyyy-mm-dd'
+        period: integer, length of period, alternative way to define period
+        '''
+        price_data = self.price[ticker]
+        if start_date and end_date:
+            price_data = price_data.loc[start_date:end_date, :]
+        elif start_date and period:
+            price_data = price_data.loc[start_date:, :]
+            price_data = price_data.iloc[:period, :]
+        elif end_date and period:
+            price_data = price_data.loc[:end_date, :]
+            price_data = price_data.iloc[-period:, :]
+        
+        return price_data
 
     def execute(self, order, trading_system, date):
         # Market order: (execute at market open)
@@ -96,6 +112,7 @@ class market:
                     quantity=order.Quantity, 
                     price=order.Price
                 )
+                return True
             else:
                 return False
 
@@ -119,6 +136,7 @@ class market:
                     quantity=order.Quantity, 
                     price=order.Price
                 )
+                return True
             else:
                 return False
 
@@ -293,6 +311,8 @@ class trading_system:
                 holdings[ticker] = holdings.get(ticker, 0) + qty
 
             self.__account = Account(date, holdings)
+        else:
+            self.__account = Account(date, self.__account.Holdings)
         return self.__account
 
     def _update_order_book(self, execution_results):
