@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="backtest_pkg",
-    version="0.1.3",
+    version="0.2.0",
     author="Andy Hu",
     author_email="andyhu2014@gmail.com",
     description="A package for backtesting portfolio strategies and trading signals",

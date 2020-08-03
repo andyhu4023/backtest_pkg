@@ -1,7 +1,6 @@
 LICENSE
 README.md
 backtest.code-workspace
-how to update.txt
 setup.cfg
 setup.py
 .vscode/settings.json
@@ -24,4 +23,3 @@ dist/backtest_pkg-0.0.3-py3-none-any.whl
 dist/backtest_pkg-0.0.3.tar.gz
 dist/backtest_pkg-0.0.4-py3-none-any.whl
 dist/backtest_pkg-0.0.4.tar.gz
-pkg_test/test_portfolio.py

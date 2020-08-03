@@ -5,95 +5,85 @@ import warnings
 from math import sqrt
 
 
-
-def get_price_from_BB(tickers, start_date, end_date):
-    'TBA'
-    '''
-    Download price data from Bloomberg. Ensusre a bloomberg connection is valid and the library pdblp is installed.
-    tickers: a list of Bloomberg tickers in the universe.
-    start_date: start date of the price data
-    end_date: end date of the price data
-    '''
-    pass
-
-def annualized_performance_metric(daily_ret_ts, tolerance=10**(-4), annual_trading_days=250):
-    output = pd.Series()
-    annualized_return= daily_ret_ts.prod()**(annual_trading_days/len(daily_ret_ts))-1
-    output['Annualized_Return'] =annualized_return
-    annualized_volatility = daily_ret_ts.std()*sqrt(annual_trading_days)
-    if annualized_volatility < tolerance:
-        annualized_volatility=np.nan
-    output['Annualized_Volatility'] = annualized_volatility
-    sharpe_ratio = annualized_return/annualized_volatility
-    output['Annualized_Sharpe_Ratio'] = sharpe_ratio
-
-    return output
-
-def period_performance_metric(daily_ret_ts, tolerance=10**(-4)):
-    output = pd.Series()
-    period_return= daily_ret_ts.prod()-1
-    output['Period_Return'] =period_return
-    period_volatility = daily_ret_ts.std()*sqrt(len(daily_ret_ts))
-    if period_volatility < tolerance:
-        period_volatility=np.nan
-    output['Period_Volatility'] = period_volatility
-    sharpe_ratio = period_return/period_volatility
-    output['Sharpe_Ratio'] = sharpe_ratio
-
-    return output
-
-
-def active_performance_metric(port_ret_ts, bm_ret_ts, tolerance=10**(-4)):
-    assert (port_ret_ts.index == bm_ret_ts.index).all(), 'Two time series should be in the same period!'
-    output = pd.Series()
-    output['Active_Return'] = port_ret_ts.prod() - bm_ret_ts.prod()
-    active_risk = (port_ret_ts-bm_ret_ts).std()*sqrt(len(port_ret_ts)) 
-    if active_risk < tolerance:
-        active_risk = np.nan
-    output['Active_Risk'] = active_risk
-    output['Information_Ratio'] = output['Active_Return']/output['Active_Risk']
-
-    return output
-
-def max_drawdown(total_ret_ts):
-    previous_peak = total_ret_ts.cummax()
-    drawdown_ts = (previous_peak - total_ret_ts)/previous_peak 
-    return max(drawdown_ts)
-
 class portfolio:
     '''
     The universe and the valid testing period will be defined by the price data.
     '''
-    def __init__(self, weight=None, share=None, benchmark=None, end_date=None, name='Portfolio', benchmark_name='Benchmark'):
+    def __init__(self, weight=None, share=None, benchmark=None, end_date=None, name='Portfolio', benchmark_name='Benchmark', price=None, trading_status=None):
         '''
         weight: a df with row-names date, col-name security id, value the portfolio weight (not necessarily normalized) of col-security at row-date. 
         share: a df with row-names date, col-name security id, value the portfolio shares of col-security at row date. 
-        benchmark: a df with row-names date, col-name security id, value the benchmark weight. 
+        benchmark: a df of benchmark weight or a portfolio object
         end_date: date to end backtest 
         name: the name of the portfolio
+        benchmark_name: the name of the benchmark
         '''
-        self._weight = weight
-        self._weight_new = weight is not None
-        self.share = share
-        self.share_new = share is not None
-        # Construct a portfolio object if benchmark is given by weights:
-        if isinstance(benchmark, pd.DataFrame):
-            self.benchmark = portfolio(weight=benchmark, end_date=end_date, name=benchmark_name)
-        elif isinstance(benchmark, portfolio) or (benchmark is None):
-            self.benchmark = benchmark
+        # Price and trading status:
+        if price is not None:
+            self.set_price(price, trading_status)
+
+        # Construct a portfolio from weight or share:
+        if weight is not None:
+            self._weight = weight
+            self.normalized = False
+        elif share is not None:
+            self.share = share
+            self._weight = self.weight_from_share(share)
         else:
-            warnings.warn('Unknown benchmark type!')
-            self.benchmark = None
+            raise TypeError('Input at least one of weight or share')
         self._end_date = end_date
         self.name = name
-        self.benchmark_name = benchmark_name
 
+        # Setting benchmark from weight df or portfolio object:
+        if benchmark is None:
+            self.benchmark = None
+        else:
+            self.set_benchmark(benchmark, benchmark_name)
+        
+
+    def set_benchmark(self, benchmark, benchmark_name='Benchmark'):
+        if isinstance(benchmark, pd.DataFrame):
+            self.benchmark = portfolio(
+                weight=benchmark, 
+                name=benchmark_name, 
+                end_date=self.end_date, 
+                price=self.price, 
+                trading_status=self.trading_status
+            )
+        elif isinstance(benchmark, portfolio):
+            self.benchmark = benchmark
+            self.benchmark.set_price(self.price, self.trading_status)
+            self.benchmark.end_date= self.end_date
+        else:
+            raise TypeError('Unkown benchmark!')
+
+
+    def set_price(self, price, trading_status=None):
+        '''
+        price_data: a df with row-names date, col-name security id, value the price of col-security at row-date. 
+        trading_status: a df with row-names date, col-name security id, boolean value indicate if col-security is tradable at row-date. 
+        '''
+        # Price and trading status is const, should not be change once set.
+        self.__price = price
+        if trading_status is None:
+            self.__trading_status = self.__price.notnull()
+        else:
+            trading_status = self._adjust(trading_status)
+            self.__trading_status = self.__price.notnull() & trading_status
+    @property
+    def price(self):
+        return self.__price
+    @property
+    def trading_status(self): 
+        return self.__trading_status
+
+    # Utility function to align df with price:
     def _adjust(self, df):
         assert self.__price is not None, "No price data!"
         # Adjust index(dates) withing price.index
         out_range_date = df.index.difference(self.__price.index)
         if len(out_range_date)>0:
-            print(f'Skipping outrange dates:\n{out_range_date.values}')
+            print(f'Skipping outrange dates:\n{[d.strftime("%Y-%m-%d") for d in out_range_date]}')
             df = df.loc[df.index & self.__price.index, :]
         # Adjust columns(tickers) withing price.columns, 
         unknown_ticker = df.columns.difference(self.__price.columns)
@@ -102,97 +92,47 @@ class portfolio:
             df = df.loc[:, df.columns & self.__price.columns]
         return df
 
+
     @property
     def weight(self):
-        '''
-        Lazy calculate _weight given share and __price.
-        '''
-        # Must set price to make the weight available.
         assert self.__price is not None, 'No price data!'
-
-        if self._weight is not None:
-            if self._weight_new:
-                self._weight = self._adjust(self._weight)
-                # Mask weights on available dates:
-                self._weight = self._weight.where(self.trading_status, other = 0)
-                # Normalize rows before return:
-                self._weight = self._weight.divide(self._weight.sum(axis=1), axis=0).fillna(0)
-                self._weight_new = False
-        else:
-            # Load price and share data to derive weights:
-            assert self.share is not None, 'No weight and no share date!'
-            if self.share_new:
-                self.share = self._adjust(self.share)
-                self.share_new = False
-            price_data = self.__price.copy().loc[self.share.index, self.share.columns]
-
-            # Construct the weights:
-            self._weight = self.share * price_data
-            self._weight_new = False
-            # Mask weights on available dates:
-            self._weight = self._weight.where(self.trading_status, other = 0)
-            # Normalize rows before return:
-            self._weight = self._weight.divide(self._weight.sum(axis=1), axis=0).fillna(0)
-
+        # Normalization process:
+        if not self.normalized:
+            self._weight = self._adjust(self._weight)
+            self._weight = self._weight.where(self.trading_status, other = 0)  # Set weight 0 if trading status is false
+            self._weight = self._weight.divide(self._weight.sum(axis=1), axis=0)  # Normalization
+            self._weight = self._weight.dropna(how='all')  # Drop rows with sum==0.
+            self.normalized= True
+  
         return self._weight
-    @weight.setter 
-    def weight(self, weight_df):
-        self._weight = weight_df
-        self._weight_new = True
-        try:
-            del self._ex_weight
-            del self.port_daily_ret
-            del self.port_total_ret
-        except AttributeError:
-            pass
+  
+    def weight_from_share(self, share):
+        share = self._adjust(share)
+        price_data = self.__price.copy().loc[share.index, share.columns]
+        self._weight = self.share * price_data
+        self.normalized = False
+        return self.weight
 
     @property
     def end_date(self):
         if self._end_date is None:
+            assert self.__price is not None, 'No price data!'
             self._end_date = max(self.__price.index)
         return self._end_date
     @end_date.setter 
     def end_date(self, value):
         self._end_date = value
 
-    ######################    Price and related attributes   ########################
-    def set_price(self, price_data, trading_status=None):
-        '''
-        price_data: a df with row-names date, col-name security id, value the price of col-security at row date. 
-        trading_status: a df with row-names date, col-name security id, boolean value indicate if col-security is tradable at row-date. 
-        '''
-        # Price for backtesting is private attribute.
-        self.__price = price_data
-        self._trading_status = trading_status
-        if self.benchmark:
-            self.benchmark.__price = price_data
-            self.benchmark._trading_status = trading_status
-
+#####################   Backtesting Calculations    ####################
     @property
     def daily_ret(self):
-        '''
-        Lazy calculate _daily_ret from __price attribute.
-        '''
         try:
             return self._daily_ret
         except AttributeError:
-            self._daily_ret = self.__price.ffill()/self.__price.ffill().shift(1).bfill(limit=1)
-            # self._daily_ret.iloc[0, :] = 1
+            self._daily_ret = np.log(self.__price.ffill()/self.__price.ffill().shift(1))
             return self._daily_ret
 
-    @property
-    def trading_status(self): 
-        '''
-        Lazy calcuate _trading_status from __price.
-        '''
-        if self._trading_status is None:
-            self._trading_status = self.__price.notnull() # Valid for trade only if price exists 
-        return self._trading_status
-    @trading_status.setter
-    def trading_status(self, value):
-        self._trading_status = value
 
-    #####################  Backtesting methods   ####################
     def _drift_weight(self, initial_weight, rebalanced_weight=None, end=None):
         '''
         initial_weight: weight before rebalance with shape (1, n)
@@ -208,20 +148,20 @@ class portfolio:
 
         ######################    Rebalance    ########################
         # Prepare the initial and rebalanced weight:
-        if initial_weight.shape[0]>1:
-            print('Only the first initial weight will be used')
-            initial_weight = initial_weight.iloc[[0], :]
-        initial_weight = initial_weight/initial_weight.iloc[0, :].sum()
-
+        assert initial_weight.shape[0]==1, 'Input weight with shape (1,n)'
+        initial_weight_sum = initial_weight.iloc[0, :].sum()
+        if initial_weight_sum==1:
+            pass
+        elif initial_weight_sum==0:
+            initial_weight.iloc[0, :] = 0
+        else:
+            initial_weight.iloc[0, :] = initial_weight.iloc[0, :]/initial_weight_sum
+        
         if rebalanced_weight is None:
             rebalanced_weight = initial_weight
         else:
-            if rebalanced_weight.shape[0]>1:
-                print('Only the first rebalance weight will be used!')
-                rebalanced_weight = rebalanced_weight.iloc[[0], :]
-            rebalanced_weight = rebalanced_weight/rebalanced_weight.iloc[0, :].sum()
-            
-            assert initial_weight.index[0] == rebalanced_weight.index[0], 'Inconsistent weight data!'
+            assert rebalanced_weight.shape[0]==1, 'Input weight with shape (1,n)'
+            assert all(initial_weight.index == rebalanced_weight.index), 'Inconsistent weight data!'
 
             # Determine tradable tickers from self.trading_status:
             rebalanced_date = initial_weight.index[0]
@@ -239,7 +179,6 @@ class portfolio:
             else:
                 rebalanced_weight = roll_forward_weight
             assert abs(rebalanced_weight.iloc[0, :].sum()-1)<1e-4, 'Abnormal rebalanced weight!'
-
 
         ########################    Drifting   ##################
         # Prepare period price data:
@@ -260,7 +199,6 @@ class portfolio:
     def ex_weight(self):
         '''
         Extend the weight to all dates before self.end_date.
-        weight: The weight to extend, represented a df with row-names date, col-name security id, value the portfolio weight of col-security at row-date. 
         '''
         try:
             return self._ex_weight
@@ -295,9 +233,10 @@ class portfolio:
             daily_ret = self.daily_ret.copy()
             ex_weight = self.ex_weight
             daily_ret = daily_ret.loc[daily_ret.index&ex_weight.index, daily_ret.columns&ex_weight.columns]
-            # Calculate portfolio daily return: 
-            port_daily_ret = (ex_weight.shift(1)*daily_ret).sum(axis = 1)
-            port_daily_ret[0] = 1
+
+            port_daily_ret_values = np.log((ex_weight.shift(1)*np.exp(daily_ret)).sum(axis=1))
+            port_daily_ret_values[0] = np.nan
+            port_daily_ret = pd.Series(port_daily_ret_values, index=ex_weight.index).fillna(0)
             self._port_daiy_ret = port_daily_ret
             return port_daily_ret
         
@@ -306,113 +245,139 @@ class portfolio:
         try:
             return self._port_total_ret
         except AttributeError:
-            self._port_total_ret = self.port_daily_ret.cumprod()
+            self._port_total_ret = self.port_daily_ret.cumsum()
             return self._port_total_ret
-
+    
+    @property
+    def port_total_value(self):
+        return np.exp(self.port_total_ret)
+    
     def backtest(self, plot=False):
         '''
-        Backtest portfolio performance over given period.
+        Calculate portfolio performance. The period is from the first date of weight to end_date.
         '''
-        # Setup price and trading status:
-        port_total_ret_df = self.port_total_ret.to_frame(name=self.name)-1
+        backtest_result = self.port_total_value.to_frame(name=self.name)
         if self.benchmark is not None:
-            bm_total_ret_df = self.benchmark.port_total_ret.to_frame(name=self.benchmark.name)-1
-        else:
-            bm_total_ret_df = pd.DataFrame(0, index=port_total_ret_df.index, columns=['Empty Portfolio'])
-
-        result = pd.concat([port_total_ret_df, bm_total_ret_df], axis=1, sort=False)
-        result['Active Weight'] = result.iloc[:,0] - result.iloc[:,1]
-        self.backtest_result = result
-        
+            backtest_result[self.benchmark.name] = self.benchmark.port_total_value
+            backtest_result['Difference'] = backtest_result.iloc[:, 0] - backtest_result.iloc[:, 1]
+        self.backtest_result = backtest_result
         if plot:
             self.performance_plot()
 
         return self.backtest_result
         
 
-    ####################    Performance     ##############################
+####################    Performance Metrics     ######################
+    @property
+    def period_return(self):
+        try:
+            return self._period_return
+        except AttributeError:
+            self._period_return = pd.Series(name='Return')
+            self._period_return[self.name] = self.port_total_ret[-1]
+            if self.benchmark is not None:
+                self._period_return[self.benchmark.name] = self.benchmark.port_total_ret[-1]
+                self._period_return['Active'] = self._period_return[0] - self._period_return[1]
+            return self._period_return
+    
+    @property
+    def period_volatility(self):
+        try:
+            return self._period_volatility
+        except AttributeError:
+            def vol(ts):
+                return ts.std()*sqrt(len(ts))
+
+            self._period_volatility= pd.Series(name='Volatility')
+            self._period_volatility[self.name] = vol(self.port_daily_ret)
+            if self.benchmark is not None:
+                self._period_volatility[self.benchmark.name] = vol(self.benchmark.port_daily_ret)
+                self._period_volatility['Active'] = vol(self.port_daily_ret - self.benchmark.port_daily_ret)
+            return self._period_volatility
+    
+    @property
+    def period_sharpe_ratio(self):
+        try:
+            return self._period_sharpe_ratio
+        except AttributeError:
+            self._period_sharpe_ratio = self.period_return/self.period_volatility
+            self._period_sharpe_ratio.name = 'Sharpe'
+            return self._period_sharpe_ratio
+
+    @property
+    def period_maximum_drawdown(self):
+        try:
+            return self._period_maximum_drawdown
+        except AttributeError:
+            def mdd(ts):
+                drawdown = 1 - ts/ts.cummax()
+                return max(drawdown)
+
+            self._period_maximum_drawdown= pd.Series(name='MaxDD')
+            self._period_maximum_drawdown[self.name] = mdd(self.port_total_value)
+            if self.benchmark is not None:
+                self._period_maximum_drawdown[self.benchmark.name] = mdd(self.benchmark.port_total_value)
+                self._period_maximum_drawdown['Active'] = mdd(self.port_total_value- self.benchmark.port_total_value)
+            return self._period_maximum_drawdown
+
+    def performance_summary(self):
+        '''
+        Provide a table of total return, volitility, Sharpe ratio, maximun drawdown for portfoilo, benchmark and active (if any).
+        '''
+        performance_summary_df = pd.DataFrame(dict(
+            Return=self.period_return,
+            Volatility=self.period_volatility,
+            Sharpe=self.period_sharpe_ratio,
+            MaxDD=self.period_maximum_drawdown
+        ))
+        # performance_summary_df = performance_summary_df.style.format({
+        #     'Return': '{:,.2%}'.format,
+        #     'Volatility': '{:,.2%}'.format,
+        #     'Sharpe': '{:,.2f}'.format,
+        #     'MaxDD': '{:,.2%}'.format,
+        # })
+        return performance_summary_df
+
     def performance_plot(self):
         '''
-        Plot 2 figures:
+        For portfolio without benchmark, return one plot of performance
+        For portfolio with benchmark, return two plots:
         1. The portfolio return and benchmark return over backtest period.
         2. The active return over the backtest period.
         '''
         result = self.backtest_result
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize = (7, 10))
-        # make a little extra space between the subplots
-        fig.subplots_adjust(hspace=0.5)
+        assert (result.shape[1]==1) or (result.shape[1]==3), 'Invalid backtest results!'
+        if result.shape[1]==1:
+            fig, ax1 = plt.subplots(1, 1)
+            ax1.plot(result.iloc[:, 0], label=result.columns[0])
+            ax1.tick_params(axis='x', rotation=25)
+            ax1.grid(color='grey', ls='--')
+            ax1.legend()
+            ax1.set_title('Total Return')
+        elif result.shape[1]==3:
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize = (7, 10))
+            # make a little extra space between the subplots
+            fig.subplots_adjust(hspace=0.5)
 
-        # Upper figure for total return:
-        ax1.plot(result.iloc[:, 0], label=result.columns[0])
-        ax1.plot(result.iloc[:, 1], label=result.columns[1])
-        ax1.tick_params(axis='x', rotation=25)
-        ax1.grid(color='grey', ls='--')
-        ax1.legend()
-        ax1.set_title('Total Return')
-        # Lower figure for active return:
-        ax2.plot(result.iloc[:, 2])
-        ax2.tick_params(axis='x', rotation=25)
-        ax2.grid(color='grey', ls='--')
-        ax2.set_title('Active Return')
+            # Upper figure for total return:
+            ax1.plot(result.iloc[:, 0], label=result.columns[0])
+            ax1.plot(result.iloc[:, 1], label=result.columns[1])
+            ax1.tick_params(axis='x', rotation=25)
+            ax1.grid(color='grey', ls='--')
+            ax1.legend()
+            ax1.set_title('Total Return')
+            # Lower figure for active return:
+            ax2.plot(result.iloc[:, 2])
+            ax2.tick_params(axis='x', rotation=25)
+            ax2.grid(color='grey', ls='--')
+            ax2.set_title('Active Return')
 
         plt.show() 
-        # return fig    
+        return fig    
     
-    def performance_summary(self):
-        '''
-        Provide a table of total return, volitility, Sharpe ratio for portfoilo, benchmark and active weight.
-        '''
-        try:
-            return self._performance_summary
-        except AttributeError:
-            summary_table=pd.DataFrame(columns=['Return', 'Volatility', 'Sharpe_Ratio'])
-            port_metric = period_performance_metric(self.port_daily_ret)
-            port_metric.index = summary_table.columns
-            summary_table.loc[self.name, :] = port_metric
-            bm_metric = period_performance_metric(self.benchmark.port_daily_ret) 
-            bm_metric.index = summary_table.columns
-            summary_table.loc[self.benchmark.name, :] = bm_metric
-            active_metric = active_performance_metric(self.port_daily_ret, self.benchmark.port_daily_ret) 
-            active_metric.index = summary_table.columns
-            summary_table.loc['Active', :] = active_metric
-            # Formatting before output:
-            summary_table = summary_table.style.format({
-                'Return': '{:,.2%}'.format,
-                'Volatility': '{:,.2%}'.format,
-                'Sharpe_Ratio': '{:,.2f}'.format,
-            })
-
-            self._performance_summary = summary_table
-            return self._performance_summary
-
-    @property
-    def period_performance(self):
-        try:
-            return self._period_performance
-        except AttributeError:
-            # Prepare portfolio, benchmark, active return:
-            port_ret= self.port_daily_ret
-            bm_ret = self.benchmark.port_daily_ret
-            daily_active_ret = port_ret - bm_ret
-            # Label each period by rebalance date from weight attribute:
-            period_ts = pd.Series(port_ret.index.map(lambda s: (s>self.weight.index).sum()), index=port_ret.index)
-            period_ts.name = 'Period'
-            # Calculate performance metric on each period:
-            period_result = pd.DataFrame()
-            period_result[self.name] = port_ret.groupby(period_ts).agg('prod') -1
-            period_result[self.benchmark.name] = bm_ret.groupby(period_ts).agg('prod') -1
-            period_result['Active Return'] = period_result[self.name] - period_result[self.benchmark.name]
-            active_risk =  daily_active_ret.groupby(period_ts).agg(lambda s:s.std()*len(s) )
-            tolerance = 10**(-5)
-            active_risk[active_risk<tolerance] = np.nan
-            period_result['Active Risk'] = active_risk
-            period_result['Information Ratio'] = period_result['Active Return']/period_result['Active Risk']
-            period_result = period_result.drop(index = 0)
-            period_result = period_result.style.format('{:.2%}'.format)
-            period_result = period_result.format({'Information Ratio': '{:,.2f}'.format})
-            self._period_performance = period_result
-
-            return self._period_performance
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+
+
+# %%
