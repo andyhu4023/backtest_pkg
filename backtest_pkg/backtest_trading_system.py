@@ -4,14 +4,22 @@ from collections import namedtuple
 from datetime import datetime
 
 Account = namedtuple('Account', ['Date', 'Holdings'])
-# date: datetime object, the version/standing-date of account information
-# holdings: a dict with tickers as keys and holding shares/quantity as values.
+Account.__doc__='''
+Investment account information for holdings at given date.
+
+date: datetime object, the version/standing-date of account information
+holdings: a dict with tickers as keys and holding shares/quantity as values.
+'''
 
 Order = namedtuple('Order', ['Type', 'Ticker', 'Quantity', 'Price'])
-# type: string, value in ['market', 'limit_up', 'limit_down', 'target']
-# ticker: string, the ticker/name of securities to trade
-# quantiy: integer, positve or negative, share/quantiy to trade
-# price: float,  price information for 'limit_up', 'limit_down' or 'target' orders
+Order.__doc__ = '''
+Orders to place for target trades.
+
+type: string, value in ['market', 'limit_up', 'limit_down', 'target']
+ticker: string, the ticker/name of securities to trade
+quantiy: integer, positve or negative, share/quantiy to trade
+price: float,  price information for 'limit_up', 'limit_down' or 'target' orders
+'''
 
 class market:
     '''
@@ -66,6 +74,9 @@ class market:
         return price_data
 
     def execute(self, order, trading_system, date):
+        '''
+        Execute a given order at given date, for trading_system.
+        '''
         # Market order: (execute at market open)
         if order.Type == 'market':
             price_open = self.price[order.Ticker].loc[date, 'open']
@@ -144,6 +155,9 @@ class market:
             raise TypeError('Unknown Order Type!')
 
     def execute_orders(self, trading_system, date):
+        '''
+        Execute all orders in order_book of trading_system at date.
+        '''
         execution_results = list()
         for order in trading_system.order_book:
             execution = self.execute(order, trading_system, date)
@@ -155,8 +169,8 @@ class market:
         '''
         No dividend version. (Use close price)
         '''
-        value = account.Holdings['Cash']
-        value += sum(account.Holdings[ticker]*self.price.loc[account.Date, 'close'] for ticker in account.Holdings if ticker!='Cash')
+        value = account.Holdings.get('Cash', 0)
+        value += sum(account.Holdings[ticker]*self.price[ticker].loc[account.Date, 'close'] for ticker in account.Holdings if ticker!='Cash')
         return value
 
     '''

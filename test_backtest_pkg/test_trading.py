@@ -573,6 +573,3 @@ class TestDataUtil(unittest.TestCase):
 
 
 
-#%%%%%%%%%%%%%%%
-
-# %%
