@@ -37,7 +37,7 @@ Definitions and assumptions:
 * Active risk is the standard deviation of daily active return multiply square root of trading days in the period. 
 * Information Ratio is active return divided by active risk.
 
-See [here]() for a small example.
+See [here](https://github.com/andyhu4023/demo-strategies/blob/master/portfolio_rating.py) for a small example.
 
 # Trading Strategy Backtest:
    1. The trading system contain the account of holdings and the record of transactions. You can create 4 types of orders (see below) and send to the market for execution.
@@ -51,7 +51,7 @@ Order types:
 * Limit_down: trade on target price or higher. Executed at open or during the trading date.
 
 
-See how you can implement the famous turtle trading system in [this demo]().
+See how you can implement the famous turtle trading system in [this demo](https://github.com/andyhu4023/demo-strategies/blob/master/trading_turtle_system.py).
 
 
 
