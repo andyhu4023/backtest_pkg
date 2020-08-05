@@ -210,7 +210,7 @@ class portfolio:
 
             # Prepare the tuples for start and end date in each rebalancing period:
             rebalance_dates = pd.Series(self.weight.index)
-            rebalance_start_end = zip(rebalance_dates,rebalance_dates.shift(-1, fill_value= self.end_date))
+            rebalance_start_end = zip(rebalance_dates,rebalance_dates.shift(-1, fill_value= pd.to_datetime(self.end_date)) )
 
             # Initial holdings are all 0:
             initial_weight = pd.DataFrame(0, index=[extend_period[0]], columns=self.__price.columns)
