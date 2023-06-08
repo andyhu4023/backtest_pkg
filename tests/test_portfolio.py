@@ -35,7 +35,7 @@ class TestPortfolio(unittest.TestCase):
         )
         self.ticker = adj_price_df.columns
         self.index = adj_price_df.index
-        self.price = adj_price_df
+        self.prices = adj_price_df
         """ Price in values:
         'Up trend': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         'Down trend': [10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
@@ -52,7 +52,7 @@ class TestPortfolio(unittest.TestCase):
         # Equal weight portfolio:
         self.weight = pd.DataFrame(1, index=self.index[[0, 5]], columns=self.ticker)
         # Equal weight asset values:
-        self.asset_values_no_rebal = self.price.copy()
+        self.asset_values_no_rebal = self.prices.copy()
         self.asset_values_no_rebal = self.asset_values_no_rebal.apply(
             lambda ts: ts / ts[0], axis=0
         )
@@ -76,8 +76,8 @@ class TestPortfolio(unittest.TestCase):
         # Price weight portfolio:
         self.share = pd.DataFrame(1, index=self.index[[0, 5]], columns=self.ticker)
         # Price weight asset values:
-        self.asset_values_no_rebal_share = self.price.copy()
-        self.asset_values_1_rebal_share = self.price.copy()
+        self.asset_values_no_rebal_share = self.prices.copy()
+        self.asset_values_1_rebal_share = self.prices.copy()
         # With trading status:
         self.asset_values_no_rebal_share_tst = self.asset_values_no_rebal_share.copy()
         self.asset_values_no_rebal_share_tst.iloc[:, 0] = 0
@@ -97,25 +97,25 @@ class TestPortfolio(unittest.TestCase):
     def test_portfolio_set_price(self):
         # Normal setting:
         port = bt.Portfolio(weights=self.weight)
-        port.setup_trading(prices=self.price)
+        port.setup_trading(prices=self.prices)
         expect_status = pd.DataFrame(True, index=self.index, columns=self.ticker)
-        assert_frame_equal(port.price, self.price)
+        assert_frame_equal(port.price, self.prices)
         assert_frame_equal(port.trading_status, expect_status)
 
         # Setting at initiation:
-        port = bt.Portfolio(weights=self.weight, prices=self.price)
+        port = bt.Portfolio(weights=self.weight, prices=self.prices)
         expect_status = pd.DataFrame(True, index=self.index, columns=self.ticker)
-        assert_frame_equal(port.price, self.price)
+        assert_frame_equal(port.price, self.prices)
         assert_frame_equal(port.trading_status, expect_status)
 
         # Price and trading status cannot be set directly
         with self.assertRaises(AttributeError):
-            port.price = self.price
+            port.price = self.prices
         with self.assertRaises(AttributeError):
             port.trading_status = self.trading_status
 
         # Try masking out untradable prices:
-        price = self.price.where(self.trading_status, other=np.nan)
+        price = self.prices.where(self.trading_status, other=np.nan)
         port = bt.Portfolio(weights=self.weight)
         port.setup_trading(prices=price)
         assert_frame_equal(port.price, price)
@@ -124,19 +124,19 @@ class TestPortfolio(unittest.TestCase):
     def test_portfolio_set_price_and_trading_status(self):
         # Normal setting price and trading status:
         port = bt.Portfolio(weights=self.weight)
-        port.setup_trading(prices=self.price, trading_status=self.trading_status)
-        assert_frame_equal(port.price, self.price)
+        port.setup_trading(prices=self.prices, trading_status=self.trading_status)
+        assert_frame_equal(port.price, self.prices)
         assert_frame_equal(port.trading_status, self.trading_status)
 
         # Setting at initiation:
         port = bt.Portfolio(
-            weights=self.weight, prices=self.price, trading_status=self.trading_status
+            weights=self.weight, prices=self.prices, trading_status=self.trading_status
         )
-        assert_frame_equal(port.price, self.price)
+        assert_frame_equal(port.price, self.prices)
         assert_frame_equal(port.trading_status, self.trading_status)
 
         # Independent NA prices and trading status:
-        price = self.price.copy()
+        price = self.prices.copy()
         price.iloc[:5, 4] = np.nan
         expect_status = self.trading_status.copy()
         expect_status.iloc[:5, 4] = False
@@ -151,24 +151,24 @@ class TestPortfolio(unittest.TestCase):
         out_range_status.loc[pd.to_datetime("2020-01-20"), :] = False
         expect_status = self.trading_status
         port = bt.Portfolio(weights=self.weight)
-        port.setup_trading(prices=self.price, trading_status=out_range_status)
+        port.setup_trading(prices=self.prices, trading_status=out_range_status)
         assert_frame_equal(port.trading_status, expect_status)
 
     def test_portfolio_weight(self):
         # Noraml equal weigt:
-        port = bt.Portfolio(weights=self.weight, prices=self.price)
+        port = bt.Portfolio(weights=self.weight, prices=self.prices)
         expect = pd.DataFrame(0.2, index=self.index[[0, 5]], columns=self.ticker)
         assert_frame_equal(port.weight, expect)
 
         # Weights of row sum==zeros:
         weight = pd.DataFrame(0.2, index=self.index[[0, 5]], columns=self.ticker)
         weight.iloc[1, :] = 0
-        port = bt.Portfolio(weights=weight, prices=self.price)
+        port = bt.Portfolio(weights=weight, prices=self.prices)
         expect = weight.iloc[[0], :]
         assert_frame_equal(port.weight, expect)
         weight = pd.DataFrame(0.2, index=self.index[[0, 5]], columns=self.ticker)
         weight.iloc[0, :] = 0
-        port = bt.Portfolio(weights=weight, prices=self.price)
+        port = bt.Portfolio(weights=weight, prices=self.prices)
         expect = weight.iloc[[1], :]
         assert_frame_equal(port.weight, expect)
 
@@ -176,7 +176,7 @@ class TestPortfolio(unittest.TestCase):
         out_range_weight = self.weight.copy()
         out_range_weight["Extra Ticker"] = 1
         out_range_weight.loc[pd.to_datetime("2020-01-20"), :] = 1
-        port = bt.Portfolio(weights=out_range_weight, prices=self.price)
+        port = bt.Portfolio(weights=out_range_weight, prices=self.prices)
         expect = pd.DataFrame(0.2, index=self.index[[0, 5]], columns=self.ticker)
         assert_frame_equal(port.weight, expect)
 
@@ -187,7 +187,7 @@ class TestPortfolio(unittest.TestCase):
     def test_portfolio_weight_with_trading_status(self):
         # Weights on untradables:
         port = bt.Portfolio(
-            weights=self.weight, prices=self.price, trading_status=self.trading_status
+            weights=self.weight, prices=self.prices, trading_status=self.trading_status
         )
         expect = pd.DataFrame(0.25, index=self.index[[0, 5]], columns=self.ticker)
         expect.iloc[0, 0] = 0
@@ -199,7 +199,7 @@ class TestPortfolio(unittest.TestCase):
         weight.iloc[0, 0] = 0
         weight.iloc[1, :] = [0, 1, 0, 0, 0]
         port = bt.Portfolio(
-            weights=weight, prices=self.price, trading_status=self.trading_status
+            weights=weight, prices=self.prices, trading_status=self.trading_status
         )
         expect = weight.iloc[[0], :]
         assert_frame_equal(port.weight, expect)
@@ -215,7 +215,7 @@ class TestPortfolio(unittest.TestCase):
         expect = pd.DataFrame(
             weight_value, index=self.index[[0, 5]], columns=self.ticker
         )
-        port = bt.Portfolio(shares=self.share, prices=self.price)
+        port = bt.Portfolio(shares=self.share, prices=self.prices)
         assert_frame_equal(port.weight, expect)
 
         # With trading status:
@@ -226,7 +226,7 @@ class TestPortfolio(unittest.TestCase):
             [j / sum(price_2) for j in price_2],
         ]
         port = bt.Portfolio(
-            shares=self.share, prices=self.price, trading_status=self.trading_status
+            shares=self.share, prices=self.prices, trading_status=self.trading_status
         )
         expect = pd.DataFrame(
             weight_value, index=self.index[[0, 5]], columns=self.ticker
@@ -235,15 +235,15 @@ class TestPortfolio(unittest.TestCase):
 
     def test_portfolio_end_date(self):
         # Defulat end date: last date of price
-        port = bt.Portfolio(weights=self.weight, prices=self.price)
+        port = bt.Portfolio(weights=self.weight, prices=self.prices)
         self.assertEqual(port.end_date, self.index[-1])
 
         # Set end date at initiation:
         end_date = pd.to_datetime("2020-01-08")
-        port = bt.Portfolio(weights=self.weight, prices=self.price, end_date=end_date)
+        port = bt.Portfolio(weights=self.weight, prices=self.prices, end_date=end_date)
         self.assertEqual(port.end_date, end_date)
         # Change end date after initiation:
-        port = bt.Portfolio(weights=self.weight, prices=self.price)
+        port = bt.Portfolio(weights=self.weight, prices=self.prices)
         self.assertEqual(port.end_date, self.index[-1])
         port.end_date = end_date
         self.assertEqual(port.end_date, end_date)
@@ -281,24 +281,24 @@ class TestPortfolio(unittest.TestCase):
         expect["Late"] = [np.nan] * 6 + [log((i + 1) / i) for i in range(1, 5)]
 
         port = bt.Portfolio(weights=self.weight, prices=price)
-        assert_frame_equal(port.daily_ret, expect)
+        assert_frame_equal(port.daily_returns, expect)
 
     def test_portfolio_drift_weight(self):
         # NO rebalance:
-        port = bt.Portfolio(weights=self.weight.iloc[[0], :], prices=self.price)
+        port = bt.Portfolio(weights=self.weight.iloc[[0], :], prices=self.prices)
         expect = self.asset_values_no_rebal.copy()
         expect = expect.apply(lambda ts: ts / ts.sum(), axis=1)
         assert_frame_equal(port.ex_weight, expect)
 
         # 1 rebalance:
-        port = bt.Portfolio(weights=self.weight, prices=self.price)
+        port = bt.Portfolio(weights=self.weight, prices=self.prices)
         expect = self.asset_values_1_rebal.copy()
         expect = expect.apply(lambda ts: ts / ts.sum(), axis=1)
         assert_frame_equal(port.ex_weight, expect)
 
     def test_portfolio_performance_return(self):
         # NO rebalance:
-        port = bt.Portfolio(weights=self.weight.iloc[[0], :], prices=self.price)
+        port = bt.Portfolio(weights=self.weight.iloc[[0], :], prices=self.prices)
         port_value = self.asset_values_no_rebal.sum(axis=1).values
         expect_daily_ret = [0] + list(
             log(port_value[i + 1] / port_value[i]) for i in range(len(self.index) - 1)
@@ -308,13 +308,13 @@ class TestPortfolio(unittest.TestCase):
             log(port_value[i + 1] / port_value[0]) for i in range(len(self.index) - 1)
         )
         expect_total_ret = pd.Series(expect_total_ret, index=self.index)
-        assert_series_equal(port.port_daily_ret, expect_daily_ret)
-        assert_series_equal(port.port_total_ret, expect_total_ret)
+        assert_series_equal(port.portfolio_returns, expect_daily_ret)
+        assert_series_equal(port.portfolio_values, expect_total_ret)
         port_value_ts = self.asset_values_no_rebal.sum(axis=1)
         assert_series_equal(port.port_total_value, port_value_ts / port_value_ts[0])
 
         # 1 rebalance:
-        port = bt.Portfolio(weights=self.weight, prices=self.price)
+        port = bt.Portfolio(weights=self.weight, prices=self.prices)
         port_value = self.asset_values_1_rebal.sum(axis=1).values
         expect_daily_ret = [0] + list(
             log(port_value[i + 1] / port_value[i]) for i in range(len(self.index) - 1)
@@ -324,28 +324,28 @@ class TestPortfolio(unittest.TestCase):
             log(port_value[i + 1] / port_value[0]) for i in range(len(self.index) - 1)
         )
         expect_total_ret = pd.Series(expect_total_ret, index=self.index)
-        assert_series_equal(port.port_daily_ret, expect_daily_ret)
-        assert_series_equal(port.port_total_ret, expect_total_ret)
+        assert_series_equal(port.portfolio_returns, expect_daily_ret)
+        assert_series_equal(port.portfolio_values, expect_total_ret)
         port_value_ts = self.asset_values_1_rebal.sum(axis=1)
         assert_series_equal(port.port_total_value, port_value_ts / port_value_ts[0])
 
     def test_portfolio_backtest(self):
         # Default setting, name = 'Portfolio'
-        port = bt.Portfolio(weights=self.weight, prices=self.price)
+        port = bt.Portfolio(weights=self.weight, prices=self.prices)
         port_value_ts = self.asset_values_1_rebal.sum(axis=1)
         port_value_ts = port_value_ts / port_value_ts[0]
         assert_frame_equal(port.backtest(), port_value_ts.to_frame(name="Portfolio"))
 
         # Setting portfolio name to 'Equal Weight'
         name = "Equal Weight"
-        port = bt.Portfolio(weights=self.weight, prices=self.price, name=name)
+        port = bt.Portfolio(weights=self.weight, prices=self.prices, name=name)
         assert_frame_equal(port.backtest(), port_value_ts.to_frame(name=name))
 
     def test_portfolio_drift_weight_with_trading_status(self):
         # NO rebalance:
         port = bt.Portfolio(
             weights=self.weight.iloc[[0], :],
-            prices=self.price,
+            prices=self.prices,
             trading_status=self.trading_status,
         )
         expect = self.asset_values_no_rebal_tst.apply(lambda ts: ts / ts.sum(), axis=1)
@@ -353,7 +353,7 @@ class TestPortfolio(unittest.TestCase):
 
         # 1 rebalance:
         port = bt.Portfolio(
-            weights=self.weight, prices=self.price, trading_status=self.trading_status
+            weights=self.weight, prices=self.prices, trading_status=self.trading_status
         )
         expect = self.asset_values_1_rebal_tst.apply(lambda ts: ts / ts.sum(), axis=1)
         assert_frame_equal(port.ex_weight, expect)
@@ -362,7 +362,7 @@ class TestPortfolio(unittest.TestCase):
         # NO rebalance:
         port = bt.Portfolio(
             weights=self.weight.iloc[[0], :],
-            prices=self.price,
+            prices=self.prices,
             trading_status=self.trading_status,
         )
         port_value = self.asset_values_no_rebal_tst.sum(axis=1).values
@@ -374,14 +374,14 @@ class TestPortfolio(unittest.TestCase):
             log(port_value[i + 1] / port_value[0]) for i in range(len(self.index) - 1)
         )
         expect_total_ret = pd.Series(expect_total_ret, index=self.index)
-        assert_series_equal(port.port_daily_ret, expect_daily_ret)
-        assert_series_equal(port.port_total_ret, expect_total_ret)
+        assert_series_equal(port.portfolio_returns, expect_daily_ret)
+        assert_series_equal(port.portfolio_values, expect_total_ret)
         port_value_ts = self.asset_values_no_rebal_tst.sum(axis=1)
         assert_series_equal(port.port_total_value, port_value_ts / port_value_ts[0])
 
         # 1 rebalance:
         port = bt.Portfolio(
-            weights=self.weight, prices=self.price, trading_status=self.trading_status
+            weights=self.weight, prices=self.prices, trading_status=self.trading_status
         )
         port_value = self.asset_values_1_rebal_tst.sum(axis=1).values
         expect_daily_ret = [0] + list(
@@ -392,15 +392,15 @@ class TestPortfolio(unittest.TestCase):
             log(port_value[i + 1] / port_value[0]) for i in range(len(self.index) - 1)
         )
         expect_total_ret = pd.Series(expect_total_ret, index=self.index)
-        assert_series_equal(port.port_daily_ret, expect_daily_ret)
-        assert_series_equal(port.port_total_ret, expect_total_ret)
+        assert_series_equal(port.portfolio_returns, expect_daily_ret)
+        assert_series_equal(port.portfolio_values, expect_total_ret)
         port_value_ts = self.asset_values_1_rebal_tst.sum(axis=1)
         assert_series_equal(port.port_total_value, port_value_ts / port_value_ts[0])
 
     def test_portfolio_backtest_with_trading_status(self):
         # Default setting, name = 'Portfolio'
         port = bt.Portfolio(
-            weights=self.weight, prices=self.price, trading_status=self.trading_status
+            weights=self.weight, prices=self.prices, trading_status=self.trading_status
         )
         port_value_ts = self.asset_values_1_rebal_tst.sum(axis=1)
         port_value_ts = port_value_ts / port_value_ts[0]
@@ -410,7 +410,7 @@ class TestPortfolio(unittest.TestCase):
         name = "Equal Weight"
         port = bt.Portfolio(
             weights=self.weight,
-            prices=self.price,
+            prices=self.prices,
             trading_status=self.trading_status,
             name=name,
         )
@@ -418,14 +418,14 @@ class TestPortfolio(unittest.TestCase):
 
     #####################   Portfolio with Benchmark    ##############################
     def test_portfolio_with_benchmark(self):
-        price_weight = self.price.iloc[[0, 5], :].copy()
+        price_weight = self.prices.iloc[[0, 5], :].copy()
         price_weight = price_weight.apply(lambda ts: ts / ts.sum(), axis=1)
         equal_weight = pd.DataFrame(0.2, index=self.index[[0, 5]], columns=self.ticker)
 
         # Add benchmark at initiation:
         price_weight_port = bt.Portfolio(
             shares=self.share,
-            prices=self.price,
+            prices=self.prices,
             name="Price Weight",
             benchmark=self.weight,
             benchmark_name="Equal Weight",
@@ -437,10 +437,10 @@ class TestPortfolio(unittest.TestCase):
 
         # Set benchmark after initiation:
         price_weight_port = bt.Portfolio(
-            shares=self.share, prices=self.price, name="Price Weight"
+            shares=self.share, prices=self.prices, name="Price Weight"
         )
         equal_weight_port = bt.Portfolio(
-            weights=self.weight, prices=self.price, name="Equal Weight"
+            weights=self.weight, prices=self.prices, name="Equal Weight"
         )
         price_weight_port.set_benchmark(equal_weight_port)
         assert_frame_equal(price_weight_port.weight, price_weight)
@@ -452,7 +452,7 @@ class TestPortfolio(unittest.TestCase):
         # No trading status:
         price_weight_port = bt.Portfolio(
             shares=self.share,
-            prices=self.price,
+            prices=self.prices,
             name="Price Weight",
             benchmark=self.weight,
             benchmark_name="Equal Weight",
@@ -468,7 +468,7 @@ class TestPortfolio(unittest.TestCase):
         # With trading status:
         price_weight_port = bt.Portfolio(
             shares=self.share,
-            prices=self.price,
+            prices=self.prices,
             trading_status=self.trading_status,
             name="Price Weight",
             benchmark=self.weight,
@@ -486,9 +486,9 @@ class TestPortfolio(unittest.TestCase):
     def test_portfolio_performance_metrics(self):
         # No trading status:
         price_weight_port = bt.Portfolio(
-            shares=self.share, prices=self.price, name="Price Weight"
+            shares=self.share, prices=self.prices, name="Price Weight"
         )
-        daily_ret = price_weight_port.port_daily_ret
+        daily_ret = price_weight_port.portfolio_returns
         performance_df = pd.DataFrame(index=["Price Weight"])
         performance_df["Return"] = daily_ret.sum()
         performance_df["Volatility"] = daily_ret.std() * sqrt(len(daily_ret))
@@ -512,11 +512,11 @@ class TestPortfolio(unittest.TestCase):
         # No trading status:
         price_weight_port = bt.Portfolio(
             shares=self.share,
-            prices=self.price,
+            prices=self.prices,
             name="Price Weight",
             trading_status=self.trading_status,
         )
-        daily_ret = price_weight_port.port_daily_ret
+        daily_ret = price_weight_port.portfolio_returns
         performance_df = pd.DataFrame(index=["Price Weight"])
         performance_df["Return"] = daily_ret.sum()
         performance_df["Volatility"] = daily_ret.std() * sqrt(len(daily_ret))
@@ -544,18 +544,18 @@ class TestPortfolio(unittest.TestCase):
             name="Price Weight",
             benchmark=self.weight,
             benchmark_name="Equal Weight",
-            prices=self.price,
+            prices=self.prices,
         )
         performance_df = pd.DataFrame()
 
         for i in ["Price Weight", "Equal Weight", "Active"]:
             if i == "Price Weight":
-                daily_ret = price_weight_port.port_daily_ret
+                daily_ret = price_weight_port.portfolio_returns
             elif i == "Equal Weight":
                 daily_ret = price_weight_port.benchmark.port_daily_ret
             elif i == "Active":
                 daily_ret = (
-                    price_weight_port.port_daily_ret
+                    price_weight_port.portfolio_returns
                     - price_weight_port.benchmark.port_daily_ret
                 )
 
@@ -591,19 +591,19 @@ class TestPortfolio(unittest.TestCase):
             name="Price Weight",
             benchmark=self.weight,
             benchmark_name="Equal Weight",
-            prices=self.price,
+            prices=self.prices,
             trading_status=self.trading_status,
         )
         performance_df = pd.DataFrame()
 
         for i in ["Price Weight", "Equal Weight", "Active"]:
             if i == "Price Weight":
-                daily_ret = price_weight_port.port_daily_ret
+                daily_ret = price_weight_port.portfolio_returns
             elif i == "Equal Weight":
                 daily_ret = price_weight_port.benchmark.port_daily_ret
             elif i == "Active":
                 daily_ret = (
-                    price_weight_port.port_daily_ret
+                    price_weight_port.portfolio_returns
                     - price_weight_port.benchmark.port_daily_ret
                 )
 
@@ -642,7 +642,7 @@ class TestPortfolio(unittest.TestCase):
         price_weight_port = bt.Portfolio(
             shares=self.share,
             name="Price Weight",
-            prices=self.price,
+            prices=self.prices,
         )
         price_weight_port.backtest()
         performance_plot = price_weight_port.performance_plot()  # figure object
@@ -659,7 +659,7 @@ class TestPortfolio(unittest.TestCase):
             name="Price Weight",
             benchmark=self.weight,
             benchmark_name="Equal Weight",
-            prices=self.price,
+            prices=self.prices,
         )
         price_weight_port.backtest()
         performance_plot = price_weight_port.performance_plot()  # figure object

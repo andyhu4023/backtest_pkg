@@ -10,6 +10,7 @@ class Portfolio:
     The universe and the valid testing period will be defined by the price data.
     """
 
+    ##############    Portfolio Construction    ##################
     def __init__(
         self,
         weights=None,
@@ -20,7 +21,12 @@ class Portfolio:
         name="Portfolio",
         benchmark=None,
     ):
-        """Create a Porfolio instance by weights or shares. Optionally input price, trading status, end date of testing, name of the portfolio and benchmark.
+        """Constructor for a Porfolio instance.
+
+        A portfolio is constructed by one of weights or shares. If both weights and shares are given, weights will be used. Optionally, a name for the portfolio can be given.
+        Optionally (but highly recommended) prices, trading status for trading setup can be given. If not, trading setup should be done manually afterwards.
+        Optionally the end date of backtest period can be given.
+        Optionally a Portfolio instance as a benchmark can be given.
 
         Parameters
         ----------
@@ -35,20 +41,22 @@ class Portfolio:
             Security identifiers (str) as columns.
             The target adjusted shares in the portfolio (int) as values.
             Untradable security shares will be forced to 0.
-        prices: pd.DataFrame
-            Trading dates in the whole testing period (pd.Timestamp) as rows/index.
+        prices: pd.DataFrame, optional
+            Trading dates in the period (pd.Timestamp) as rows/index.
             Security identifiers as columns.
-            The adjusted closing price as (float) values.
-        trading_status: pd.DataFrame
+            The adjusted closing price (float) as values.
+        trading_status: pd.DataFrame, optional
             Trading dates in the whole testing period (pd.Timestamp) as rows/index.
             Security identifiers as columns.
             Whether the security is tradable at the date (bool) as values.
-        end_date: pd.Timestamp
-            The end date of testing period.
-            If not set, will be set as the last price date.
-        name: str
-            The name of the portfolio
-        benchmark: Porfolio
+            By default, the trading status is true if there are not-NA prices.
+        end_date: pd.Timestamp, optional
+            The end date of backtest period.
+            By default, the end date is the last price date.
+        name: str, optional
+            The name of the portfolio.
+            By default, the name is "Portfolio".
+        benchmark: Porfolio, optional
             The benchmark portfolio to compare performances.
 
         Returns
@@ -73,28 +81,33 @@ class Portfolio:
             self.trading_status = None
 
         self.end_date = end_date
-        self.benchmark = benchmark
+        if benchmark is not None:
+            benchmark.setup_trading(prices=prices, trading_status=trading_status)
+            self.benchmark = benchmark
+        else:
+            self.benchmark = None
 
     def setup_trading(self, prices, trading_status=None):
-        """Setup prices and trading status for trading in testing.
-        Prices and trading status should not be changed once setup for testing.
+        """Setup trading information for backtest.
+
+        Prices and trading status should not be changed once setup. The trading status is True if there are valid prices and tradable i.e. True in trading_status.
 
         Parameters
         -----------
-        prices: pd.DataFrame
-            Trading dates in the whole testing period (pd.Timestamp) as rows/index.
+        prices: pd.DataFrame, optional
+            Trading dates in the period (pd.Timestamp) as rows/index.
             Security identifiers as columns.
-            The adjusted closing price as (float) values.
-        trading_status: pd.DataFrame
+            The adjusted closing price (float) as values.
+        trading_status: pd.DataFrame, optional
             Trading dates in the whole testing period (pd.Timestamp) as rows/index.
             Security identifiers as columns.
             Whether the security is tradable at the date (bool) as values.
+            By default, the trading status is true if there are not-NA prices.
 
         Returns
         ---------
         None
         """
-        #
         self.prices = prices
 
         if trading_status is None:
@@ -105,6 +118,17 @@ class Portfolio:
 
         if self.end_date is None:
             self.end_date = max(self.prices.index)
+
+        # Delete dependent attributes if already exist
+        dependent_attr = (
+            "_weights",
+            "_daily_returns",
+            "_ex_weights",
+            "_portfolio_returns",
+            "_portfolio_values",
+        )
+        for attr in dependent_attr:
+            self.__dict__.pop(attr, None)
 
     @property
     def shares(self):
@@ -125,7 +149,8 @@ class Portfolio:
 
     @property
     def weights(self):
-        """Portfolio weights adjusted by prices and trading status. Derived from init_weights or init_shares."""
+        """Portfolio weights adjusted by prices and trading status.
+        Derived from init_weights or init_shares."""
         try:
             return self._weights
         except AttributeError:
@@ -147,30 +172,33 @@ class Portfolio:
         return self._weights
 
     def normalize(self, df):
-        """A utility function to normalized dataframe rows, i.e. make row sums equal to 1.
+        """Normalized dataframe rows.
+
+        Return a dataframe with row abs sums equal to 1. The abs sums will allow long-short portfolio strategies. Zero rows will be dropped.
 
         Parameters
         -----------
         df: pd.DataFrame
-            data to adjust to align with price data
+            a dataframe with numerical values.
 
         Returns
         -------------
         pd.DataFrame
-            A DataFrame
+            A dataframe with row abs sums all equal to 1.
         """
-
-        df = df.divide(df.sum(axis=1), axis=0)
+        df = df.divide(df.abs().sum(axis=1), axis=0)
         df.dropna(how="all", inplace=True)
         return df
 
     def _adjust(self, df):
-        """A utility function to adjust a dataframe to align with prices data. Dates and ids not in prices will be removed.
+        """Adjust a dataframe to align with prices data.
+
+        Align with prices data means the date index are subset of price index and the id columns are subset of price columns. Dates and ids not in prices data will be removed. A messgae for removed dates and ids will be printed.
 
         Parameters
         -----------
         df: pd.DataFrame
-            data to adjust
+            a dataframe to align with price data
 
         Returns
         -------------
@@ -194,173 +222,189 @@ class Portfolio:
             df = df.loc[:, df.columns & self.prices.columns]
         return df
 
-    #####################   Backtesting Calculations    ####################
+    #####################   Backtest Calculations    ####################
     @property
-    def daily_ret(self):
+    def daily_returns(self):
+        """daily returns calculated from forward filled prices."""
         try:
-            return self._daily_ret
+            return self._daily_returns
         except AttributeError:
-            self._daily_ret = np.log(
-                self.__prices.ffill() / self.__prices.ffill().shift(1)
+            self._daily_returns = np.log(
+                self.prices.ffill() / self.prices.ffill().shift(1)
             )
-            return self._daily_ret
+            return self._daily_returns
 
-    def _drift_weight(self, initial_weight, rebalanced_weight=None, end=None):
+    def rebalance(self, initial_weights, rebalanced_weights):
+        """Rebalance based on trading status.
+
+        Untradable securities will be rolled forwad, i.e. no change of weights. Remaining weights are distributed to tradable securites proportiion to its rebalanced weights. The index of initial weights and rebalanced weights should be the same.
+
+
+        Parameters
+        -----------
+        initial_weights: pd.DataFrame, shape (1, n)
+            Rebalance dates (pd.Timestamp) as index.
+            Security identifiers (str) as columns.
+            The initial weights (float) as values.
+        rebalanced_weights: pd.DataFrame, shape (1, n)
+            Rebalance dates (pd.Timestamp) as index.
+            Security identifiers (str) as columns.
+            The rebalanced weights (float) as values.
+
+        Returns
+        -------------
+        pd.DataFrame, shapre (1, n)
+            The trading status adjusted rebalanced weights.
         """
-        initial_weight: weight before rebalance with shape (1, n)
-        rebalanced_weight: weight after rebalance with shape (1, n), same index as initial weight.
-        end: end date of the drifting period.
+        # Preprocessing initial, rebalanced weights, trading status:
+        assert initial_weights.shape[0] == 1, "Initial weights of shape (1,n)"
+        assert (
+            initial_weights.abs().sum(axis=1) > 0
+        ), "Invalid initial weights of all zeros!"
+        assert rebalanced_weights.shape[0] == 1, "Rebalanced weights of shape (1,n)"
+        assert (
+            rebalanced_weights.abs().sum(axis=1) > 0
+        ), "Invalid rebalanced weights of all zeros!"
+        initial_date = initial_weights.index[0]
+        rebalanced_date = rebalanced_weights.index[0]
+        assert initial_date == rebalanced_date, "Input weights in the same date"
+        initial_weights = self.normalize(initial_weights)
+        rebalanced_weights = self.normalize(rebalanced_weights)
+        trading_status = self.trading_status.loc[[rebalanced_date], :]
+
+        # Untradable security will roll forwad, i.e. no change of weights
+        # Remaining weights are distributed to tradable by its rebalanced weights
+        tradable_weights = rebalanced_weights.where(trading_status, other=0)
+        roll_forward_weights = initial_weights.where(~trading_status, other=0)
+        if all(trading_status):
+            rebalanced_weights = rebalanced_weights
+        elif any(trading_status):
+            roll_forward_sum = roll_forward_weights.sum(axis=1)
+            tradable_weights = self.normalize(tradable_weights) * (1 - roll_forward_sum)
+            rebalanced_weights = tradable_weights + roll_forward_weights
+        else:
+            rebalanced_weights = initial_weights
+
+        assert (
+            abs(rebalanced_weights.sum(axis=1) - 1) < 1e-4
+        ), "Abnormal rebalanced weight!"
+        return rebalanced_weights
+
+    def drift(self, initial_weights, end_date=None):
+        """Drift weights over a period.
+
+        Parameters
+        -----------
+        initial_weights: pd.DataFrame, shape (1, n)
+            Rebalance dates (pd.Timestamp) as index.
+            Security identifiers (str) as columns.
+            The initial weights (float) as values.
+        end_date: pd.Timestamp
+            end date of the drifting period.
+            By default, the end date is the end date of backtest period.
+            If end date is after backtest end date, it is set to backtest end date.
+
+        Returns
+        -------------
+        pd.DataFrame
+            Dates from rebalanced dates to end date as index.
+            Security identifiers as columns
+            The weights of security at given date as values.
         """
-        # Prepare end of drifting period:
-        if end is None:
-            end = self.end_date
-        elif end > self.end_date:
-            print(f"Invalid end date, set to {self.end_date} (portfolio end date)!")
-            end = self.end_date
+        # Prepare end date
+        if end_date is None:
+            end_date = self.end_date
+        elif end_date > self.end_date:
+            print(f"End date is set to {self.end_date:%Y-%m-%d} (backtest end date)!")
+            end_date = self.end_date
 
-        ######################    Rebalance    ########################
-        # Prepare the initial and rebalanced weight:
-        assert initial_weight.shape[0] == 1, "Input weight with shape (1,n)"
-        initial_weight_sum = initial_weight.iloc[0, :].sum()
-        if initial_weight_sum == 1:
-            pass
-        elif initial_weight_sum == 0:
-            initial_weight.iloc[0, :] = 0
-        else:
-            initial_weight.iloc[0, :] = initial_weight.iloc[0, :] / initial_weight_sum
-
-        if rebalanced_weight is None:
-            rebalanced_weight = initial_weight
-        else:
-            assert rebalanced_weight.shape[0] == 1, "Input weight with shape (1,n)"
-            assert all(
-                initial_weight.index == rebalanced_weight.index
-            ), "Inconsistent weight data!"
-
-            # Determine tradable tickers from self.trading_status:
-            rebalanced_date = initial_weight.index[0]
-            trading_status = self.trading_status.loc[[rebalanced_date], :]
-
-            # Two weight vectors will be calcuate: one for rebalance, one for roll forward
-            rebalanced_weight = rebalanced_weight.where(trading_status, other=0)
-            roll_forward_weight = initial_weight.where(~trading_status, other=0)
-            roll_forward_total = roll_forward_weight.iloc[0, :].sum()
-            if roll_forward_total < 1:
-                rebalanced_total = rebalanced_weight.iloc[0, :].sum()
-                adjustment_factor = (1 - roll_forward_total) / rebalanced_total
-                rebalanced_weight = rebalanced_weight * adjustment_factor
-                rebalanced_weight = rebalanced_weight + roll_forward_weight
-            else:
-                rebalanced_weight = roll_forward_weight
-            assert (
-                abs(rebalanced_weight.iloc[0, :].sum() - 1) < 1e-4
-            ), "Abnormal rebalanced weight!"
-
-        ########################    Drifting   ##################
-        # Prepare period price data:
-        period_index = self.__prices.index
+        # Prepare period prices and returns
+        period_index = self.prices.index
         period_index = period_index[
-            (period_index >= initial_weight.index[0]) & (period_index <= end)
+            (period_index >= initial_weights.index[0]) & (period_index <= end_date)
         ]
-        period_price = self.__prices.loc[period_index, :].ffill()
+        period_prices = self.prices.loc[period_index, :].ffill()
+        period_retuns = period_prices.div(period_prices.iloc[0, :], axis=1)
 
-        # Total returns:
-        total_return = period_price / period_price.iloc[0, :]
-        # Drifting weights:
-        drift_weight = rebalanced_weight.reindex(period_index).ffill()
-        drift_weight = drift_weight * total_return
-        drift_weight = drift_weight.div(drift_weight.sum(axis=1), axis=0).fillna(0)
+        # Drift
+        drift_weights = initial_weights.reindex(period_index).ffill()
+        drift_weights = drift_weights * period_retuns
+        drift_weights = self.normalize(drift_weights)
 
-        return drift_weight
+        return drift_weights
 
     @property
     def ex_weight(self):
-        """
-        Extend the weight to all dates before self.end_date.
-        """
+        """Extend the weights from rebalance dates to all backtest dates"""
         try:
             return self._ex_weight
         except AttributeError:
             # Prepare the index after extention: (From first weight to end date)
-            extend_period = self.__prices.index
-            extend_period = extend_period[
-                (extend_period >= self.weight.index[0])
-                & (extend_period <= self.end_date)
+            start_date = self.weights.index[0]
+            end_date = self.end_date
+            extend_period = self.prices.index[
+                (extend_period >= start_date) & (extend_period <= end_date)
             ]
-            extend_weight = self.weight.reindex(extend_period)
 
             # Prepare the tuples for start and end date in each rebalancing period:
-            rebalance_dates = pd.Series(self.weight.index)
+            rebalance_dates = pd.Series(self.weights.index)
             rebalance_start_end = zip(
                 rebalance_dates,
                 rebalance_dates.shift(-1, fill_value=pd.to_datetime(self.end_date)),
             )
 
-            # Initial holdings are all 0:
-            initial_weight = pd.DataFrame(
-                0, index=[extend_period[0]], columns=self.__prices.columns
+            # Drift in each rebalancing period: (All zero initially)
+            self._ex_weight = pd.DataFrame(
+                0, index=extend_period, columns=self.weights.columns
             )
-
-            # Loop over each rebalancing period:
             for start, end in rebalance_start_end:
-                rebalanced_weight = self.weight.loc[[start], :]
-                period_weight = self._drift_weight(
-                    initial_weight=initial_weight,
-                    rebalanced_weight=rebalanced_weight,
-                    end=end,
+                initial_weights = self._ex_weight.loc[[start], :]
+                rebalanced_weights = self.weights.loc[[start], :]
+                rebalanced_weights = self.rebalance(
+                    initial_weights=initial_weights,
+                    rebalanced_weights=rebalanced_weights,
                 )
-                extend_weight.loc[start:end, :] = period_weight
-                initial_weight = extend_weight.loc[[end], :]
+                period_weights = self.drift(
+                    initial_weights=initial_weights,
+                    end_date=end,
+                )
+                self._ex_weight.loc[start:end, :] = period_weights
 
-            self._ex_weight = extend_weight
             return self._ex_weight
 
     @property
-    def port_daily_ret(self):
+    def portfolio_returns(self):
+        """Time series of portfolio daily returns"""
         try:
-            return self._port_daily_ret
+            return self._portfolio_returns
         except AttributeError:
-            daily_ret = self.daily_ret.copy()
             ex_weight = self.ex_weight
-            daily_ret = daily_ret.loc[
+            daily_ret = self.daily_returns.loc[
                 daily_ret.index & ex_weight.index, daily_ret.columns & ex_weight.columns
             ]
 
-            port_daily_ret_values = np.log(
-                (ex_weight.shift(1) * np.exp(daily_ret)).sum(axis=1)
-            )
-            port_daily_ret_values[0] = np.nan
-            port_daily_ret = pd.Series(
-                port_daily_ret_values, index=ex_weight.index
-            ).fillna(0)
-            self._port_daiy_ret = port_daily_ret
-            return port_daily_ret
+            self._portfolio_returns = (ex_weight.shift(1) * (daily_ret)).sum(axis=1)
+            self._portfolio_returns[0] = 1
+            return self._portfolio_returns
 
     @property
-    def port_total_ret(self):
+    def portfolio_values(self):
+        """Time series of portfolio value with base 1"""
         try:
             return self._port_total_ret
         except AttributeError:
-            self._port_total_ret = self.port_daily_ret.cumsum()
+            self._port_total_ret = self.portfolio_returns.cumprod()
             return self._port_total_ret
 
-    @property
-    def port_total_value(self):
-        return np.exp(self.port_total_ret)
-
-    def backtest(self, plot=False):
-        """
-        Calculate portfolio performance. The period is from the first date of weight to end_date.
-        """
-        backtest_result = self.port_total_value.to_frame(name=self.name)
+    def backtest(self):
+        """Calculate portfolio performances over backtest period."""
+        backtest_result = self.portfolio_values.to_frame(name=self.name)
         if self.benchmark is not None:
-            backtest_result[self.benchmark.name] = self.benchmark.port_total_value
+            backtest_result[self.benchmark.name] = self.benchmark.portfolio_values
             backtest_result["Difference"] = (
                 backtest_result.iloc[:, 0] - backtest_result.iloc[:, 1]
             )
         self.backtest_result = backtest_result
-        if plot:
-            self.performance_plot()
 
         return self.backtest_result
 
@@ -371,7 +415,7 @@ class Portfolio:
             return self._period_return
         except AttributeError:
             self._period_return = pd.Series(name="Return")
-            self._period_return[self.name] = self.port_total_ret[-1]
+            self._period_return[self.name] = self.portfolio_values[-1]
             if self.benchmark is not None:
                 self._period_return[
                     self.benchmark.name
@@ -391,13 +435,13 @@ class Portfolio:
                 return ts.std() * sqrt(len(ts))
 
             self._period_volatility = pd.Series(name="Volatility")
-            self._period_volatility[self.name] = vol(self.port_daily_ret)
+            self._period_volatility[self.name] = vol(self.portfolio_returns)
             if self.benchmark is not None:
                 self._period_volatility[self.benchmark.name] = vol(
                     self.benchmark.port_daily_ret
                 )
                 self._period_volatility["Active"] = vol(
-                    self.port_daily_ret - self.benchmark.port_daily_ret
+                    self.portfolio_returns - self.benchmark.port_daily_ret
                 )
             return self._period_volatility
 
@@ -489,9 +533,3 @@ class Portfolio:
 
         plt.show()
         return fig
-
-
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-
-# %%
