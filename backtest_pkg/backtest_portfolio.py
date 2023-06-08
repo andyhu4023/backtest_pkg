@@ -72,6 +72,7 @@ class Portfolio:
         else:
             raise TypeError("Input at least one of weights or shares")
         self.name = name
+        self.end_date = end_date
 
         # Trading is setup by prices alone or prices & trading status
         if prices is not None:
@@ -80,7 +81,6 @@ class Portfolio:
             self.prices = None
             self.trading_status = None
 
-        self.end_date = end_date
         if benchmark is not None:
             benchmark.setup_trading(prices=prices, trading_status=trading_status)
             self.benchmark = benchmark
