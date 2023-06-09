@@ -413,127 +413,160 @@ class Portfolio:
         return self.backtest_result
 
     ####################    Performance Metrics     ######################
-    @property
-    def period_return(self):
-        try:
-            return self._period_return
-        except AttributeError:
-            self._period_return = pd.Series(name="Return")
-            self._period_return[self.name] = self.portfolio_values[-1]
-            if self.benchmark is not None:
-                self._period_return[
-                    self.benchmark.name
-                ] = self.benchmark.port_total_ret[-1]
-                self._period_return["Active"] = (
-                    self._period_return[0] - self._period_return[1]
-                )
-            return self._period_return
+    def adjust_start_end(self, start=None, end=None):
+        """Adjust start and end dates to align with prices
 
-    @property
-    def period_volatility(self):
-        try:
-            return self._period_volatility
-        except AttributeError:
+        Parameters
+        -----------
+        start: pd.Timestamp
+            start date of a period
+        end: pd.Timestamp
+            end date of a period
 
-            def vol(ts):
-                return ts.std() * sqrt(len(ts))
+        Returns
+        -------------
+        tuple of 2 pd.Timestamp
+            a tuple pair of adjusted start and end date
 
-            self._period_volatility = pd.Series(name="Volatility")
-            self._period_volatility[self.name] = vol(self.portfolio_returns)
-            if self.benchmark is not None:
-                self._period_volatility[self.benchmark.name] = vol(
-                    self.benchmark.port_daily_ret
-                )
-                self._period_volatility["Active"] = vol(
-                    self.portfolio_returns - self.benchmark.port_daily_ret
-                )
-            return self._period_volatility
-
-    @property
-    def period_sharpe_ratio(self):
-        try:
-            return self._period_sharpe_ratio
-        except AttributeError:
-            self._period_sharpe_ratio = self.period_return / self.period_volatility
-            self._period_sharpe_ratio.name = "Sharpe"
-            return self._period_sharpe_ratio
-
-    @property
-    def period_maximum_drawdown(self):
-        try:
-            return self._period_maximum_drawdown
-        except AttributeError:
-
-            def mdd(ts):
-                drawdown = 1 - ts / ts.cummax()
-                return max(drawdown)
-
-            self._period_maximum_drawdown = pd.Series(name="MaxDD")
-            self._period_maximum_drawdown[self.name] = mdd(self.port_total_value)
-            if self.benchmark is not None:
-                self._period_maximum_drawdown[self.benchmark.name] = mdd(
-                    self.benchmark.port_total_value
-                )
-                self._period_maximum_drawdown["Active"] = mdd(
-                    self.port_total_value - self.benchmark.port_total_value
-                )
-            return self._period_maximum_drawdown
-
-    def performance_summary(self):
         """
-        Provide a table of total return, volitility, Sharpe ratio, maximun drawdown for portfoilo, benchmark and active (if any).
-        """
-        performance_summary_df = pd.DataFrame(
-            dict(
-                Return=self.period_return,
-                Volatility=self.period_volatility,
-                Sharpe=self.period_sharpe_ratio,
-                MaxDD=self.period_maximum_drawdown,
-            )
-        )
-        # performance_summary_df = performance_summary_df.style.format({
-        #     'Return': '{:,.2%}'.format,
-        #     'Volatility': '{:,.2%}'.format,
-        #     'Sharpe': '{:,.2f}'.format,
-        #     'MaxDD': '{:,.2%}'.format,
-        # })
-        return performance_summary_df
+        if (start is None) or (start < self.prices.index[0]):
+            start = self.prices.index[0]
+        if (end is None) or (end > self.end_date):
+            end = self.end_date
 
-    def performance_plot(self):
-        """
-        For portfolio without benchmark, return one plot of performance
-        For portfolio with benchmark, return two plots:
-        1. The portfolio return and benchmark return over backtest period.
-        2. The active return over the backtest period.
-        """
-        result = self.backtest_result
-        assert (result.shape[1] == 1) or (
-            result.shape[1] == 3
-        ), "Invalid backtest results!"
-        if result.shape[1] == 1:
-            fig, ax1 = plt.subplots(1, 1)
-            ax1.plot(result.iloc[:, 0], label=result.columns[0])
-            ax1.tick_params(axis="x", rotation=25)
-            ax1.grid(color="grey", ls="--")
-            ax1.legend()
-            ax1.set_title("Total Return")
-        elif result.shape[1] == 3:
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(7, 10))
-            # make a little extra space between the subplots
-            fig.subplots_adjust(hspace=0.5)
+        return start, end
 
-            # Upper figure for total return:
-            ax1.plot(result.iloc[:, 0], label=result.columns[0])
-            ax1.plot(result.iloc[:, 1], label=result.columns[1])
-            ax1.tick_params(axis="x", rotation=25)
-            ax1.grid(color="grey", ls="--")
-            ax1.legend()
-            ax1.set_title("Total Return")
-            # Lower figure for active return:
-            ax2.plot(result.iloc[:, 2])
-            ax2.tick_params(axis="x", rotation=25)
-            ax2.grid(color="grey", ls="--")
-            ax2.set_title("Active Return")
+    def period_return(self, start=None, end=None):
+        """Calculate the period total return
 
-        plt.show()
-        return fig
+        Parameters
+        -----------
+        start: pd.Timestamp
+            start date of a period
+        end: pd.Timestamp
+            end date of a period
+
+        Returns
+        -------------
+
+        """
+        start, end = self.adjust_start_end(start=start, end=end)
+        return self.portfolio_values[end] / self.portfolio_values[start]
+
+    def period_volatility(self, start=None, end=None):
+        """Calculate the period volatitliy
+
+        Parameters
+        -----------
+        start: pd.Timestamp
+            start date of a period
+        end: pd.Timestamp
+            end date of a period
+
+        Returns
+        -------------
+
+        """
+        start, end = self.adjust_start_end(start=start, end=end)
+        port_daily_ret_ts = self.portfolio_returns[start:end]
+        return port_daily_ret_ts.std() / sqrt(len(port_daily_ret_ts))
+
+    def period_sharpe_ratio(self, start=None, end=None):
+        """Calculate the period Sharpe ratio
+
+        The Sharpe ratio is considered as the risk adjusted excess returns.
+        More about Sharpe ratio can be found [here](https://en.wikipedia.org/wiki/Sharpe_ratio)
+
+        Parameters
+        -----------
+        start: pd.Timestamp
+            start date of a period
+        end: pd.Timestamp
+            end date of a period
+
+        Returns
+        -------------
+
+        """
+        start, end = self.adjust_start_end(start=start, end=end)
+        return self.period_return(start, end) / self.period_volatility(start, end)
+
+    def period_maximum_drawdown(self, start=None, end=None):
+        """Calculate the maximun drawdown in a period.
+
+        The maximun drawdown is consider as the maximum loss by holding the porfolio.
+        More about maximun drawdown can be found [here](https://www.investopedia.com/terms/m/maximum-drawdown-mdd.asp#:~:text=Maximum%20drawdown%20(MDD)%20is%20a,down%20movements%20could%20be%20volatile.)
+
+        Parameters
+        -----------
+        start: pd.Timestamp
+            start date of a period
+        end: pd.Timestamp
+            end date of a period
+
+        Returns
+        -------------
+
+        """
+        start, end = self.adjust_start_end(start=start, end=end)
+        port_value_ts = self.portfolio_values[start, end]
+        return max(1 - port_value_ts / port_value_ts.cummax())
+
+    # def performance_summary(self):
+    #     """
+    #     Provide a table of total return, volitility, Sharpe ratio, maximun drawdown for portfoilo, benchmark and active (if any).
+    #     """
+    #     performance_summary_df = pd.DataFrame(
+    #         dict(
+    #             Return=self.period_return,
+    #             Volatility=self.period_volatility,
+    #             Sharpe=self.period_sharpe_ratio,
+    #             MaxDD=self.period_maximum_drawdown,
+    #         )
+    #     )
+    #     # performance_summary_df = performance_summary_df.style.format({
+    #     #     'Return': '{:,.2%}'.format,
+    #     #     'Volatility': '{:,.2%}'.format,
+    #     #     'Sharpe': '{:,.2f}'.format,
+    #     #     'MaxDD': '{:,.2%}'.format,
+    #     # })
+    #     return performance_summary_df
+
+    # def performance_plot(self):
+    #     """
+    #     For portfolio without benchmark, return one plot of performance
+    #     For portfolio with benchmark, return two plots:
+    #     1. The portfolio return and benchmark return over backtest period.
+    #     2. The active return over the backtest period.
+    #     """
+    #     result = self.backtest_result
+    #     assert (result.shape[1] == 1) or (
+    #         result.shape[1] == 3
+    #     ), "Invalid backtest results!"
+    #     if result.shape[1] == 1:
+    #         fig, ax1 = plt.subplots(1, 1)
+    #         ax1.plot(result.iloc[:, 0], label=result.columns[0])
+    #         ax1.tick_params(axis="x", rotation=25)
+    #         ax1.grid(color="grey", ls="--")
+    #         ax1.legend()
+    #         ax1.set_title("Total Return")
+    #     elif result.shape[1] == 3:
+    #         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(7, 10))
+    #         # make a little extra space between the subplots
+    #         fig.subplots_adjust(hspace=0.5)
+
+    #         # Upper figure for total return:
+    #         ax1.plot(result.iloc[:, 0], label=result.columns[0])
+    #         ax1.plot(result.iloc[:, 1], label=result.columns[1])
+    #         ax1.tick_params(axis="x", rotation=25)
+    #         ax1.grid(color="grey", ls="--")
+    #         ax1.legend()
+    #         ax1.set_title("Total Return")
+    #         # Lower figure for active return:
+    #         ax2.plot(result.iloc[:, 2])
+    #         ax2.tick_params(axis="x", rotation=25)
+    #         ax2.grid(color="grey", ls="--")
+    #         ax2.set_title("Active Return")
+
+    #     plt.show()
+    #     return fig
