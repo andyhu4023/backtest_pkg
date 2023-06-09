@@ -1,5 +1,2 @@
-from backtest_pkg.backtest_portfolio import Portfolio
-from backtest_pkg.backtest_trading_system import market
-from backtest_pkg.backtest_trading_system import trading_system
-from backtest_pkg.backtest_trading_system import Order
-from backtest_pkg.backtest_trading_system import Account
+from backtest_pkg.portfolio import Portfolio
+from backtest_pkg.trading_system import market, trading_system, Order, Account

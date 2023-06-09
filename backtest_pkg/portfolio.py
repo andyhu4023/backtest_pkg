@@ -1,8 +1,9 @@
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import warnings
 from math import sqrt
+
+# import matplotlib.pyplot as plt
+# import warnings
 
 
 class Portfolio:
@@ -229,9 +230,7 @@ class Portfolio:
         try:
             return self._daily_returns
         except AttributeError:
-            self._daily_returns = np.log(
-                self.prices.ffill() / self.prices.ffill().shift(1)
-            )
+            self._daily_returns = self.prices.ffill() / self.prices.ffill().shift(1)
             return self._daily_returns
 
     def rebalance(self, initial_weights, rebalanced_weights):
@@ -258,11 +257,11 @@ class Portfolio:
         """
         # Preprocessing initial, rebalanced weights, trading status:
         assert initial_weights.shape[0] == 1, "Initial weights of shape (1,n)"
-        assert (
+        assert all(
             initial_weights.abs().sum(axis=1) > 0
         ), "Invalid initial weights of all zeros!"
         assert rebalanced_weights.shape[0] == 1, "Rebalanced weights of shape (1,n)"
-        assert (
+        assert all(
             rebalanced_weights.abs().sum(axis=1) > 0
         ), "Invalid rebalanced weights of all zeros!"
         initial_date = initial_weights.index[0]
@@ -272,23 +271,25 @@ class Portfolio:
         rebalanced_weights = self.normalize(rebalanced_weights)
         trading_status = self.trading_status.loc[[rebalanced_date], :]
 
-        # Untradable security will roll forwad, i.e. no change of weights
-        # Remaining weights are distributed to tradable by its rebalanced weights
-        tradable_weights = rebalanced_weights.where(trading_status, other=0)
-        roll_forward_weights = initial_weights.where(~trading_status, other=0)
-        if all(trading_status):
-            rebalanced_weights = rebalanced_weights
-        elif any(trading_status):
-            roll_forward_sum = roll_forward_weights.sum(axis=1)
+        if trading_status.iloc[0, :].all():
+            final_weights = rebalanced_weights
+        elif trading_status.iloc[0, :].any():
+            # Untradable security will roll forwad, i.e. no change of weights
+            # Remaining weights are distributed to tradable by its rebalanced weights
+            tradable_weights = rebalanced_weights.where(trading_status, other=0).copy()
+            roll_forward_weights = initial_weights.where(
+                ~trading_status, other=0
+            ).copy()
+            roll_forward_sum = roll_forward_weights.iloc[0, :].sum()
             tradable_weights = self.normalize(tradable_weights) * (1 - roll_forward_sum)
-            rebalanced_weights = tradable_weights + roll_forward_weights
+            final_weights = tradable_weights + roll_forward_weights
         else:
-            rebalanced_weights = initial_weights
+            final_weights = initial_weights
 
-        assert (
-            abs(rebalanced_weights.sum(axis=1) - 1) < 1e-4
+        assert all(
+            abs(final_weights.sum(axis=1) - 1) < 1e-4
         ), "Abnormal rebalanced weight!"
-        return rebalanced_weights
+        return final_weights
 
     def drift(self, initial_weights, end_date=None):
         """Drift weights over a period.
@@ -342,7 +343,8 @@ class Portfolio:
             # Prepare the index after extention: (From first weight to end date)
             start_date = self.weights.index[0]
             end_date = self.end_date
-            extend_period = self.prices.index[
+            extend_period = self.prices.index.copy()
+            extend_period = extend_period[
                 (extend_period >= start_date) & (extend_period <= end_date)
             ]
 
@@ -357,6 +359,7 @@ class Portfolio:
             self._ex_weight = pd.DataFrame(
                 0, index=extend_period, columns=self.weights.columns
             )
+            self._ex_weight.iloc[0, :] = self.weights.iloc[0, :]
             for start, end in rebalance_start_end:
                 initial_weights = self._ex_weight.loc[[start], :]
                 rebalanced_weights = self.weights.loc[[start], :]
@@ -365,7 +368,7 @@ class Portfolio:
                     rebalanced_weights=rebalanced_weights,
                 )
                 period_weights = self.drift(
-                    initial_weights=initial_weights,
+                    initial_weights=rebalanced_weights,
                     end_date=end,
                 )
                 self._ex_weight.loc[start:end, :] = period_weights
@@ -379,7 +382,8 @@ class Portfolio:
             return self._portfolio_returns
         except AttributeError:
             ex_weight = self.ex_weight
-            daily_ret = self.daily_returns.loc[
+            daily_ret = self.daily_returns
+            daily_ret = daily_ret.loc[
                 daily_ret.index & ex_weight.index, daily_ret.columns & ex_weight.columns
             ]
 
