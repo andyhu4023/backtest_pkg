@@ -194,6 +194,16 @@ class Performance:
             self._benchmark_max_drawdown = self.cal_max_drawdown(self.benchmark)
         return self._benchmark_max_drawdown
 
+    @property
+    def active_max_drawdown(self):
+        try:
+            return self._active_max_drawdown
+        except AttributeError:
+            self._active_max_drawdown = self.cal_max_drawdown(
+                self.data - self.benchmark
+            )
+        return self._active_max_drawdown
+
     def summary(self):
         index = ["Total Return", "Volatility", "Sharpe Ratio", "Maximum Drawdown"]
         summary_list = list()
@@ -227,7 +237,7 @@ class Performance:
                     self.active_total_return,
                     self.active_risk,
                     self.information_ratio,
-                    None,
+                    self.active_max_drawdown,
                 ],
                 index=index,
                 name="Active",
