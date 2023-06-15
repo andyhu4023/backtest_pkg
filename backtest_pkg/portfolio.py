@@ -1,14 +1,13 @@
-import numpy as np
 import pandas as pd
-from math import sqrt
-
-# import matplotlib.pyplot as plt
-# import warnings
+from .performance import Performance
 
 
 class Portfolio:
-    """The main class for backtesting.
-    The universe and the valid testing period will be defined by the price data.
+    """The portfolio strategy backtest class.
+
+    A portfolio is constructed by one of weights or shares.
+    Optionally, a benchmark portfolio can be set to compare performances.
+    The market is defined by prices data and (optional) trading status.
     """
 
     ##############    Portfolio Construction    ##################
@@ -238,7 +237,6 @@ class Portfolio:
 
         Untradable securities will be rolled forwad, i.e. no change of weights. Remaining weights are distributed to tradable securites proportiion to its rebalanced weights. The index of initial weights and rebalanced weights should be the same.
 
-
         Parameters
         -----------
         initial_weights: pd.DataFrame, shape (1, n)
@@ -434,7 +432,7 @@ class Portfolio:
         if (end is None) or (end > self.end_date):
             end = self.end_date
 
-        return start, end
+        return self.portfolio_values[start:end]
 
     def period_return(self, start=None, end=None):
         """Calculate the period total return
@@ -448,10 +446,11 @@ class Portfolio:
 
         Returns
         -------------
-
+        float
+            Total return of the portfolio over the period
         """
-        start, end = self.adjust_start_end(start=start, end=end)
-        return self.portfolio_values[end] / self.portfolio_values[start]
+        ts = self.adjust_start_end(start=start, end=end)
+        return Performance(ts).total_return
 
     def period_volatility(self, start=None, end=None):
         """Calculate the period volatitliy
@@ -465,16 +464,16 @@ class Portfolio:
 
         Returns
         -------------
-
+        float
+            Return volatility of the portfolio over the period
         """
-        start, end = self.adjust_start_end(start=start, end=end)
-        port_daily_ret_ts = self.portfolio_returns[start:end]
-        return port_daily_ret_ts.std() / sqrt(len(port_daily_ret_ts))
+        ts = self.adjust_start_end(start=start, end=end)
+        return Performance(ts).volatility
 
     def period_sharpe_ratio(self, start=None, end=None):
         """Calculate the period Sharpe ratio
 
-        The Sharpe ratio is considered as the risk adjusted excess returns.
+        The Sharpe ratio is considered as the risk adjusted excess returns. Risk free rate is set as 0.
         More about Sharpe ratio can be found [here](https://en.wikipedia.org/wiki/Sharpe_ratio)
 
         Parameters
@@ -486,10 +485,10 @@ class Portfolio:
 
         Returns
         -------------
-
+            Sharpe ratio of the portfolio over the period.
         """
-        start, end = self.adjust_start_end(start=start, end=end)
-        return self.period_return(start, end) / self.period_volatility(start, end)
+        ts = self.adjust_start_end(start=start, end=end)
+        return Performance(ts).sharpe_ratio
 
     def period_maximum_drawdown(self, start=None, end=None):
         """Calculate the maximun drawdown in a period.
@@ -506,67 +505,34 @@ class Portfolio:
 
         Returns
         -------------
-
+        float
+            Maximum drawdown of the portfolio over a period
         """
-        start, end = self.adjust_start_end(start=start, end=end)
-        port_value_ts = self.portfolio_values[start, end]
-        return max(1 - port_value_ts / port_value_ts.cummax())
+        ts = self.adjust_start_end(start=start, end=end)
+        return Performance(ts).max_drawdown
 
-    # def performance_summary(self):
-    #     """
-    #     Provide a table of total return, volitility, Sharpe ratio, maximun drawdown for portfoilo, benchmark and active (if any).
-    #     """
-    #     performance_summary_df = pd.DataFrame(
-    #         dict(
-    #             Return=self.period_return,
-    #             Volatility=self.period_volatility,
-    #             Sharpe=self.period_sharpe_ratio,
-    #             MaxDD=self.period_maximum_drawdown,
-    #         )
-    #     )
-    #     # performance_summary_df = performance_summary_df.style.format({
-    #     #     'Return': '{:,.2%}'.format,
-    #     #     'Volatility': '{:,.2%}'.format,
-    #     #     'Sharpe': '{:,.2f}'.format,
-    #     #     'MaxDD': '{:,.2%}'.format,
-    #     # })
-    #     return performance_summary_df
+    def performance_summary(self):
+        """Return a table of performance metrics.
 
-    # def performance_plot(self):
-    #     """
-    #     For portfolio without benchmark, return one plot of performance
-    #     For portfolio with benchmark, return two plots:
-    #     1. The portfolio return and benchmark return over backtest period.
-    #     2. The active return over the backtest period.
-    #     """
-    #     result = self.backtest_result
-    #     assert (result.shape[1] == 1) or (
-    #         result.shape[1] == 3
-    #     ), "Invalid backtest results!"
-    #     if result.shape[1] == 1:
-    #         fig, ax1 = plt.subplots(1, 1)
-    #         ax1.plot(result.iloc[:, 0], label=result.columns[0])
-    #         ax1.tick_params(axis="x", rotation=25)
-    #         ax1.grid(color="grey", ls="--")
-    #         ax1.legend()
-    #         ax1.set_title("Total Return")
-    #     elif result.shape[1] == 3:
-    #         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(7, 10))
-    #         # make a little extra space between the subplots
-    #         fig.subplots_adjust(hspace=0.5)
+        The table contains total return, volitility, Sharpe ratio and maximun drawdown.
+        If benchmark are set, benchmark metrics and active metrics are also presented.
 
-    #         # Upper figure for total return:
-    #         ax1.plot(result.iloc[:, 0], label=result.columns[0])
-    #         ax1.plot(result.iloc[:, 1], label=result.columns[1])
-    #         ax1.tick_params(axis="x", rotation=25)
-    #         ax1.grid(color="grey", ls="--")
-    #         ax1.legend()
-    #         ax1.set_title("Total Return")
-    #         # Lower figure for active return:
-    #         ax2.plot(result.iloc[:, 2])
-    #         ax2.tick_params(axis="x", rotation=25)
-    #         ax2.grid(color="grey", ls="--")
-    #         ax2.set_title("Active Return")
+        Parameters
+        ----------
+        None
 
-    #     plt.show()
-    #     return fig
+        Returns
+        ----------
+        pd.Dateframe
+            A summary table
+        """
+        try:
+            return self._performance.summary()
+        except AttributeError:
+            if self.benchmark is None:
+                self._performance = Performance(self.portfolio_values)
+            else:
+                self._performance = Performance(
+                    self.portfolio_values, self.benchmark.portfolio_values
+                )
+            return self._performance.summary()
